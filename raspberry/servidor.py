@@ -1,30 +1,39 @@
+import os
 import cherrypy
 import sqlite3
 from datetime import datetime
+from logica import decidir_estado
 
 DB = "lecturas.db"
 
 def init_db():
     con = sqlite3.connect(DB)
+    # Tabla con soporte para CO2, temp, hum, pulso y operador
     con.execute("""CREATE TABLE IF NOT EXISTS lecturas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        fecha TEXT, co2 REAL, temp REAL, hum REAL)""")
+        fecha TEXT, co2 REAL, temp REAL, hum REAL, pulso REAL, operador TEXT)""")
     con.commit()
     con.close()
 
 class API:
     @cherrypy.expose
-    def index(self):
-        return "SIMVA funcionando"
-
-    @cherrypy.expose
     @cherrypy.tools.json_in()
     @cherrypy.tools.json_out()
     def lectura(self):
+        """ Endpoint donde el ESP32 envía los datos de los sensores """
         d = cherrypy.request.json
         con = sqlite3.connect(DB)
-        con.execute("INSERT INTO lecturas (fecha, co2, temp, hum) VALUES (?,?,?,?)",
-                    (datetime.now().isoformat(), d.get("co2"), d.get("temp"), d.get("hum")))
+        con.execute(
+            "INSERT INTO lecturas (fecha, co2, temp, hum, pulso, operador) VALUES (?,?,?,?,?,?)",
+            (
+                datetime.now().isoformat(),
+                d.get("co2"),
+                d.get("temp"),
+                d.get("hum"),
+                d.get("pulso", 70),
+                d.get("operador", "anonimo")
+            )
+        )
         con.commit()
         con.close()
         return {"ok": True}
@@ -32,16 +41,68 @@ class API:
     @cherrypy.expose
     @cherrypy.tools.json_out()
     def ultimas(self, n=20):
+        """ Regresa las últimas N lecturas guardadas """
         con = sqlite3.connect(DB)
         filas = con.execute(
-            "SELECT fecha, co2, temp, hum FROM lecturas ORDER BY id DESC LIMIT ?", (int(n),)
+            "SELECT fecha, co2, temp, hum, pulso FROM lecturas ORDER BY id DESC LIMIT ?", (int(n),)
         ).fetchall()
         con.close()
-        return [{"fecha": f, "co2": c, "temp": t, "hum": h} for f, c, t, h in filas]
+        return [{"fecha": f, "co2": c, "temp": t, "hum": h, "pulso": p} for f, c, t, h, p in filas]
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def estado(self):
+        """ Endpoint que consume el Dashboard de la Interfaz Web """
+        con = sqlite3.connect(DB)
+        filas = con.execute("SELECT co2, temp, hum, pulso FROM lecturas ORDER BY id DESC LIMIT 10").fetchall()
+        con.close()
+
+        if not filas:
+            return {
+                "temp": 22.0, "hum": 50.0, "co2": 400.0, "pulso": 70.0,
+                "vent": "OFF", "ia_status": "Sin datos registrados", "pendiente": 0.0
+            }
+
+        historial_co2 = [f[0] for f in reversed(filas)]
+        co2_actual, temp, hum, pulso = filas[0]
+        
+        ahora = datetime.now()
+        evaluacion = decidir_estado(
+            co2=co2_actual,
+            historial_co2=historial_co2,
+            temp=temp,
+            hum=hum,
+            pulso=pulso,
+            hora=ahora.hour,
+            dia_semana=ahora.weekday()
+        )
+
+        return {
+            "temp": round(temp, 1),
+            "hum": round(hum, 1),
+            "co2": int(co2_actual),
+            "pulso": int(pulso) if pulso else "--",
+            "vent": "ON" if evaluacion["ventilador"] == 1 else "OFF",
+            "ia_status": evaluacion["msg_ia"],
+            "pendiente": evaluacion["pendiente"]
+        }
 
 init_db()
+
+# Servir la carpeta interfaz/ como aplicación web
+PATH_INTERFAZ = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "interfaz"))
+
+conf = {
+    "/": {
+        "tools.staticdir.on": True,
+        "tools.staticdir.dir": PATH_INTERFAZ,
+        "tools.staticdir.index": "index.html"
+    }
+}
+
 cherrypy.config.update({
     "server.socket_host": "0.0.0.0",
     "server.socket_port": 8080,
 })
-cherrypy.quickstart(API())
+
+cherrypy.quickstart(API(), "/", conf)
