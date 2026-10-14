@@ -1,1 +1,223 @@
-<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>SIMVA - Dashboard</title><style>body{background:#0f172a;color:white;font-family:sans-serif;text-align:center;padding:30px;}.grid{display:flex;justify-content:center;gap:20px;flex-wrap:wrap;margin-top:30px;}.card{background:#1e293b;padding:20px;border-radius:12px;min-width:180px;border:1px solid #334155;}.val{font-size:2.5em;font-weight:bold;color:#38bdf8;margin:10px 0;}.on{color:#4ade80;}.off{color:#f87171;}</style></head><body><h1>SIMVA Dashboard</h1><p>Sistema Inteligente de Monitoreo y Ventilaci髇 Autom醫ica</p><div class="grid"><div class="card"><h3>Temperatura</h3><div id="temp" class="val">--</div>癈</div><div class="card"><h3>Humedad</h3><div id="hum" class="val">--</div>%</div><div class="card"><h3>Nivel CO2</h3><div id="co2" class="val">--</div>ppm</div><div class="card"><h3>Ventilaci髇</h3><div id="vent" class="val off">OFF</div></div></div><script>function simular(){let t=(20+Math.random()*8).toFixed(1);let h=(45+Math.random()*20).toFixed(1);let c=Math.floor(400+Math.random()*700);document.getElementById("temp").innerText=t;document.getElementById("hum").innerText=h;document.getElementById("co2").innerText=c;let v=document.getElementById("vent");if(c>800){v.innerText="ON";v.className="val on";}else{v.innerText="OFF";v.className="val off";}}setInterval(simular,2000);simular();</script></body></html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIMVA - Dashboard</title>
+    <link rel="manifest" href="manifest.json">
+    <!-- Chart.js servido localmente o via CDN para desarrollo -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0f172a;
+            color: #f8fafc;
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 20px;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #334155;
+        }
+        h1 { font-size: 1.8rem; color: #38bdf8; }
+        p.subtitle { font-size: 0.9rem; color: #94a3b8; }
+        
+        .profile-selector {
+            background: #1e293b;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+        }
+        .profile-selector label { font-size: 0.85rem; color: #94a3b8; margin-right: 8px; }
+        .profile-selector select {
+            background: #0f172a;
+            color: #f8fafc;
+            border: 1px solid #475569;
+            padding: 5px 10px;
+            border-radius: 6px;
+            outline: none;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .card {
+            background: #1e293b;
+            padding: 18px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            text-align: center;
+        }
+        .card h3 { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+        .val { font-size: 2.2rem; font-weight: bold; color: #38bdf8; margin: 8px 0; }
+        .unit { font-size: 0.9rem; color: #64748b; }
+        
+        /* Estados de Ventilaci贸n e IA */
+        .on { color: #4ade80; }
+        .off { color: #f87171; }
+        .warn { color: #fbbf24; }
+        
+        .ia-card { grid-column: span 2; }
+        @media (max-width: 600px) { .ia-card { grid-column: span 1; } }
+
+        .chart-container {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            height: 350px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1>SIMVA Dashboard</h1>
+            <p class="subtitle">Sistema Inteligente de Monitoreo y Ventilaci贸n Autom谩tica</p>
+        </div>
+        
+        <!-- Selector de Perfiles (Requerimiento Retroalimentaci贸n) -->
+        <div class="profile-selector">
+            <label for="operador">Operador:</label>
+            <select id="operador">
+                <option value="ivan">Iv谩n Garc铆a</option>
+                <option value="ingrid">Ingrid Dom铆nguez</option>
+                <option value="edgar">Edgar Esquivel</option>
+                <option value="leonardo">Leonardo N谩jera</option>
+            </select>
+        </div>
+    </header>
+
+    <!-- Tarjetas de Lecturas -->
+    <div class="grid">
+        <div class="card">
+            <h3>Temperatura</h3>
+            <div id="temp" class="val">--</div>
+            <span class="unit">掳C</span>
+        </div>
+        <div class="card">
+            <h3>Humedad</h3>
+            <div id="hum" class="val">--</div>
+            <span class="unit">%</span>
+        </div>
+        <div class="card">
+            <h3>Nivel CO2</h3>
+            <div id="co2" class="val">--</div>
+            <span class="unit">ppm</span>
+        </div>
+        <div class="card">
+            <h3>Frecuencia Card铆aca</h3>
+            <div id="pulso" class="val">--</div>
+            <span class="unit">bpm</span>
+        </div>
+        <div class="card">
+            <h3>Ventilaci贸n</h3>
+            <div id="vent" class="val off">OFF</div>
+        </div>
+        <div class="card ia-card">
+            <h3>Diagn贸stico IA</h3>
+            <div id="ia-status" class="val warn" style="font-size: 1.4rem;">Evaluando...</div>
+            <span id="ia-detail" class="unit">Pendiente CO2: -- ppm/min</span>
+        </div>
+    </div>
+
+    <!-- Gr谩fica de Tendencia en Tiempo Real -->
+    <div class="chart-container">
+        <canvas id="co2Chart"></canvas>
+    </div>
+
+    <script>
+        // Inicializar Gr谩fica Chart.js
+        const ctx = document.getElementById('co2Chart').getContext('2d');
+        const co2Chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Nivel de CO2 (ppm)',
+                    data: [],
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' }, min: 300, max: 1500 }
+                },
+                plugins: { legend: { labels: { color: '#f8fafc' } } }
+            }
+        });
+
+        function agregarDatoGrafica(hora, co2) {
+            if (co2Chart.data.labels.length > 15) {
+                co2Chart.data.labels.shift();
+                co2Chart.data.datasets[0].data.shift();
+            }
+            co2Chart.data.labels.push(hora);
+            co2Chart.data.datasets[0].data.push(co2);
+            co2Chart.update();
+        }
+
+        // Funci贸n para consumir API de CherryPy o Simular
+        async function actualizarDashboard() {
+            try {
+                // Intenta consumir el servidor de la Raspberry Pi
+                const res = await fetch('/api/estado');
+                const data = await res.json();
+                
+                renderizarDatos(data.temp, data.hum, data.co2, data.pulso, data.vent, data.ia_status, data.pendiente);
+            } catch (err) {
+                // Modo Simulaci贸n en Desarrollo si no hay backend activo
+                let t = (20 + Math.random() * 8).toFixed(1);
+                let h = (45 + Math.random() * 20).toFixed(1);
+                let c = Math.floor(400 + Math.random() * 700);
+                let p = Math.floor(65 + Math.random() * 30);
+                let slope = (Math.random() * 8 - 2).toFixed(1);
+                
+                let ventState = c > 800 || slope > 5 ? "ON" : "OFF";
+                let iaMsg = slope > 5 ? "Ventilaci贸n Anticipada" : "Ambiente Estable";
+                
+                renderizarDatos(t, h, c, p, ventState, iaMsg, slope);
+            }
+        }
+
+        function renderizarDatos(t, h, c, p, v, iaMsg, slope) {
+            const ahora = new Date().toLocaleTimeString();
+            
+            document.getElementById("temp").innerText = t;
+            document.getElementById("hum").innerText = h;
+            document.getElementById("co2").innerText = c;
+            document.getElementById("pulso").innerText = p;
+            
+            // Ventilaci贸n
+            const ventElem = document.getElementById("vent");
+            ventElem.innerText = v;
+            ventElem.className = v === "ON" ? "val on" : "val off";
+            
+            // Diagn贸stico IA
+            document.getElementById("ia-status").innerText = iaMsg;
+            document.getElementById("ia-detail").innerText = `Pendiente CO2: ${slope} ppm/min`;
+
+            agregarDatoGrafica(ahora, c);
+        }
+
+        setInterval(actualizarDashboard, 3000);
+        actualizarDashboard();
+    </script>
+</body>
+</html>
