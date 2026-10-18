@@ -22,15 +22,24 @@ class API:
     def lectura(self):
         """ Endpoint donde el ESP32 envía los datos de los sensores """
         d = cherrypy.request.json
+        if not isinstance(d, dict):
+            raise cherrypy.HTTPError(400, "Se esperaba un objeto JSON")
+        try:
+            co2 = float(d["co2"])
+            temp = float(d["temp"])
+            hum = float(d["hum"])
+            pulso = float(d.get("pulso", 70))
+        except (KeyError, TypeError, ValueError):
+            raise cherrypy.HTTPError(400, "Campos co2, temp, hum (y pulso) deben ser numericos")
         con = sqlite3.connect(DB)
         con.execute(
             "INSERT INTO lecturas (fecha, co2, temp, hum, pulso, operador) VALUES (?,?,?,?,?,?)",
             (
                 datetime.now().isoformat(),
-                d.get("co2"),
-                d.get("temp"),
-                d.get("hum"),
-                d.get("pulso", 70),
+                co2,
+                temp,
+                hum,
+                pulso,
                 d.get("operador", "anonimo")
             )
         )
@@ -42,6 +51,10 @@ class API:
     @cherrypy.tools.json_out()
     def ultimas(self, n=20):
         """ Regresa las últimas N lecturas guardadas """
+        try:
+            n = max(1, min(int(n), 500))
+        except ValueError:
+            raise cherrypy.HTTPError(400, "n debe ser un entero")
         con = sqlite3.connect(DB)
         filas = con.execute(
             "SELECT fecha, co2, temp, hum, pulso FROM lecturas ORDER BY id DESC LIMIT ?", (int(n),)
@@ -81,13 +94,15 @@ class API:
             "temp": round(temp, 1),
             "hum": round(hum, 1),
             "co2": int(co2_actual),
-            "pulso": int(pulso) if pulso else "--",
+            "pulso": int(pulso) if pulso else 0,
             "vent": "ON" if evaluacion["ventilador"] == 1 else "OFF",
             "ia_status": evaluacion["msg_ia"],
             "pendiente": evaluacion["pendiente"]
         }
 
-init_db()
+def main():
+    init_db()
+    cherrypy.quickstart(API(), "/", conf)
 
 # Servir la carpeta interfaz/ como aplicación web
 PATH_INTERFAZ = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "interfaz"))
@@ -105,4 +120,5 @@ cherrypy.config.update({
     "server.socket_port": 8080,
 })
 
-cherrypy.quickstart(API(), "/", conf)
+if __name__ == "__main__":
+    main()

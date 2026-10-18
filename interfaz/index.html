@@ -177,7 +177,7 @@
         async function actualizarDashboard() {
             try {
                 // Intenta consumir el servidor de la Raspberry Pi
-                const res = await fetch('/api/estado');
+                const res = await fetch('/estado');
                 const data = await res.json();
                 
                 renderizarDatos(data.temp, data.hum, data.co2, data.pulso, data.vent, data.ia_status, data.pendiente);
