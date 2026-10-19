@@ -37,9 +37,10 @@ Hardware planeado: ESP32, Raspberry Pi 4, SCD41, MAX30102, relé, ventilador 12 
 
 ### `raspberry/`
 - **`servidor.py`** (puerto **8080**, `0.0.0.0`). Base SQLite `lecturas.db` (se crea sola), tabla `lecturas(id, fecha, co2, temp, hum, pulso, operador)`. Sirve también `interfaz/` como sitio estático en `/`. Endpoints:
-  - `POST /lectura`: JSON `{"co2", "temp", "hum", "pulso", "operador"}`; guarda y responde `{"ok": true}`.
+  - `POST /lectura`: JSON `{"co2", "temp", "hum", "pulso", "operador"}` (`operador` opcional: si falta se usa el activo); guarda y responde `{"ok": true, "estado", "ventilador": 0|1}`. El ESP32 usa la respuesta para accionar relé, LED y buzzer.
+  - `POST /operador`: JSON `{"operador": "ivan"}`; fija el operador que se asigna a las lecturas que no traen uno (lo llama el dashboard al cambiar el selector).
   - `GET /ultimas?n=20`: últimas N lecturas.
-  - `GET /estado`: última lectura + evaluación: `{temp, hum, co2, pulso, vent: "ON"|"OFF", ia_status, pendiente}`.
+  - `GET /estado`: última lectura + evaluación: `{estado, temp, hum, co2, pulso, vent: "ON"|"OFF", ia_status, pendiente}`.
 - **`logica.py`**: `decidir_estado()` consulta al predictor y aplica:
   - **Emergencia**: CO₂ > 2000 ppm, o CO₂ > 1000 con pulso > 25 % sobre su base (70 bpm).
   - **Alerta**: CO₂ > 1000 ppm, o la IA predice llegar al umbral en < 5 min (con aviso de riesgo combinado si el pulso también está alto).
@@ -69,17 +70,16 @@ curl http://localhost:8080/estado
 **ESP32:** abrir `esp32/main_esp32.ino` en Arduino IDE, instalar *DHT sensor library* (Adafruit), poner `ssid`, `password` y la IP de la Raspberry en `serverUrl`, cargar y abrir el Monitor Serial a 115200.
 
 ## Problemas conocidos (a resolver)
-- **`raspberry/ia/predictor.py` está vacío**: `logica.py` importa `SIMVAPredictor` y el servidor no arranca hasta que se implemente (y exista el modelo entrenado).
-- **El dashboard llama a `/api/estado`**, pero el servidor expone `/estado`. Mientras no coincidan, el dashboard muestra datos simulados aunque el servidor esté activo.
-- El dashboard no envía ni usa el operador seleccionado; el ESP32 lo manda fijo como `"ivan"`.
-- `manifest.json` referencia `icon.png`, que no existe.
+- Sin `python ia/train.py` el predictor funciona solo con la regla de pendiente (el servidor lo avisa al arrancar).
+- Los pines del relé (26), LED (25) y buzzer (27) en `main_esp32.ino` son provisionales y el código del actuador no se ha probado en hardware.
 - El dashboard carga Chart.js desde un CDN (requiere internet).
+- `manifest.json` ya no declara íconos; falta crear un `icon.png` para que la PWA sea instalable.
 - Los endpoints de la versión anterior (`/enviar_lectura`, `/datos_actuales`, `/historial`) y `app.py`/`database.py` ya no existen.
 
 ## Pendientes del proyecto
 - Integrar SCD41 (CO₂) y MAX30102 (pulso) en el firmware; quitar los `random()`.
-- Circuito de potencia: relé, ventilador, LED y buzzer, controlados por el ESP32 según el estado.
-- Implementar `predictor.py` y entrenar con datos reales de la base de datos.
+- Circuito de potencia: armar relé, ventilador, LED y buzzer y probar el código del ESP32 que ya los controla.
+- Entrenar el modelo con datos reales de la base de datos (hoy usa datos sintéticos).
 - Histórico y registro visible de anomalías en la interfaz.
 - Pruebas integrales (exhalación en caja cerrada, tiempo de respuesta ≤ 5 s) y validación contra el monitor de referencia.
 - Documentación final y demostración (3 dic 2026).
