@@ -15,12 +15,39 @@ const char* serverUrl = "http://192.168.1.50:8080/lectura";
 #define DHTTYPE DHT22  // Sensor AM2302 / DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
+// --- ACTUADORES (pines por definir con el circuito de potencia final) ---
+const int PIN_RELE = 26;    // Relé del ventilador 12 V (activo en HIGH)
+const int PIN_LED = 25;     // LED de alerta
+const int PIN_BUZZER = 27;  // Buzzer, solo en Emergencia
+
 unsigned long lastTime = 0;
 const unsigned long timerDelay = 5000; // Enviar lecturas cada 5 segundos (Requerimiento Project Charter)
+
+// Aplica la decisión del servidor a los actuadores
+void aplicarActuadores(bool ventilador, bool emergencia) {
+  digitalWrite(PIN_RELE, ventilador ? HIGH : LOW);
+  digitalWrite(PIN_LED, ventilador ? HIGH : LOW);
+  digitalWrite(PIN_BUZZER, emergencia ? HIGH : LOW);
+}
+
+// Lee "ventilador" y "estado" de la respuesta {"ok": true, "estado": "...", "ventilador": 1}
+void procesarRespuesta(const String& response) {
+  int pos = response.indexOf("\"ventilador\"");
+  if (pos < 0) return;
+  int dos = response.indexOf(':', pos);
+  bool ventilador = dos >= 0 && response.substring(dos + 1).toInt() == 1;
+  bool emergencia = response.indexOf("Emergencia") >= 0;
+  aplicarActuadores(ventilador, emergencia);
+}
 
 void setup() {
   Serial.begin(115200);
   dht.begin();
+
+  pinMode(PIN_RELE, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  aplicarActuadores(false, false);
 
   // Conexión Wi-Fi
   WiFi.begin(ssid, password);
@@ -48,9 +75,10 @@ void loop() {
       float pulso = random(65, 95);   // Reemplazar con max30102.getHeartRate()
 
       if (isnan(humedad) || isnan(temperatura)) {
-        Serial.println("Error leyendo el sensor AM2302/DHT22");
-        humedad = 50.0;
-        temperatura = 22.0;
+        // No se envían valores inventados: se reintenta en el siguiente ciclo
+        Serial.println("Error leyendo el sensor AM2302/DHT22, lectura omitida");
+        lastTime = millis();
+        return;
       }
 
       // 2. Crear cliente HTTP
@@ -63,8 +91,7 @@ void loop() {
       jsonPayload += "\"co2\":" + String(co2) + ",";
       jsonPayload += "\"temp\":" + String(temperatura) + ",";
       jsonPayload += "\"hum\":" + String(humedad) + ",";
-      jsonPayload += "\"pulso\":" + String(pulso) + ",";
-      jsonPayload += "\"operador\":\"ivan\"";
+      jsonPayload += "\"pulso\":" + String(pulso);  // el operador lo asigna el servidor
       jsonPayload += "}";
 
       Serial.print("Enviando JSON: ");
@@ -76,7 +103,10 @@ void loop() {
       if (httpResponseCode > 0) {
         String response = http.getString();
         Serial.print("Respuesta Servidor: ");
-        Serial.println(httpResponseCode);
+        Serial.print(httpResponseCode);
+        Serial.print(" ");
+        Serial.println(response);
+        procesarRespuesta(response);
       } else {
         Serial.print("Error enviando POST: ");
         Serial.println(httpResponseCode);
