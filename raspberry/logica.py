@@ -2,7 +2,7 @@ from ia.predictor import SIMVAPredictor
 
 predictor = SIMVAPredictor()
 
-def decidir_estado(co2, historial_co2=[], temp=25, hum=50, pulso=None, pulso_base=70, hora=12, dia_semana=1):
+def decidir_estado(co2, historial_co2=None, temp=25, hum=50, pulso=None, pulso_base=70, hora=12, dia_semana=1):
     """
     Normal: CO2 < 1000 ppm. Si el pulso está elevado (>25% sobre su base) pero
             el aire está estable, se queda en Normal (puede ser esfuerzo físico),
@@ -11,6 +11,8 @@ def decidir_estado(co2, historial_co2=[], temp=25, hum=50, pulso=None, pulso_bas
             Si además el pulso está elevado, se marca como riesgo combinado.
     Emergencia: CO2 > 2000 ppm, o CO2 > 1000 con pulso elevado (> 25% sobre su base).
     """
+    historial_co2 = historial_co2 or []
+
     # 1. Consulta al predictor de IA
     evaluacion_ia = predictor.evaluar(
         hora=hora,
