@@ -15,7 +15,42 @@ def init_db():
     con.commit()
     con.close()
 
+operador_activo = "anonimo"
+
+def evaluar_ultimas():
+    """ Evalua las ultimas lecturas guardadas; None si no hay datos """
+    con = sqlite3.connect(DB)
+    filas = con.execute("SELECT co2, temp, hum, pulso FROM lecturas ORDER BY id DESC LIMIT 10").fetchall()
+    con.close()
+    if not filas:
+        return None
+    ahora = datetime.now()
+    co2_actual, temp, hum, pulso = filas[0]
+    evaluacion = decidir_estado(
+        co2=co2_actual,
+        historial_co2=[f[0] for f in reversed(filas)],
+        temp=temp,
+        hum=hum,
+        pulso=pulso,
+        hora=ahora.hour,
+        dia_semana=ahora.weekday()
+    )
+    return filas[0], evaluacion
+
 class API:
+    @cherrypy.expose
+    @cherrypy.tools.json_in()
+    @cherrypy.tools.json_out()
+    def operador(self):
+        """ Define el operador que se asigna a las lecturas que no traen uno """
+        global operador_activo
+        d = cherrypy.request.json
+        nombre = d.get("operador") if isinstance(d, dict) else None
+        if not isinstance(nombre, str) or not nombre.strip():
+            raise cherrypy.HTTPError(400, "Falta el campo operador")
+        operador_activo = nombre.strip()
+        return {"ok": True, "operador": operador_activo}
+
     @cherrypy.expose
     @cherrypy.tools.json_in()
     @cherrypy.tools.json_out()
@@ -40,12 +75,14 @@ class API:
                 temp,
                 hum,
                 pulso,
-                d.get("operador", "anonimo")
+                d.get("operador") or operador_activo
             )
         )
         con.commit()
         con.close()
-        return {"ok": True}
+        _, evaluacion = evaluar_ultimas()
+        # El ESP32 usa estado y ventilador para accionar rele, LED y buzzer
+        return {"ok": True, "estado": evaluacion["estado"], "ventilador": evaluacion["ventilador"]}
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
@@ -66,31 +103,19 @@ class API:
     @cherrypy.tools.json_out()
     def estado(self):
         """ Endpoint que consume el Dashboard de la Interfaz Web """
-        con = sqlite3.connect(DB)
-        filas = con.execute("SELECT co2, temp, hum, pulso FROM lecturas ORDER BY id DESC LIMIT 10").fetchall()
-        con.close()
+        resultado = evaluar_ultimas()
 
-        if not filas:
+        if resultado is None:
             return {
                 "temp": 22.0, "hum": 50.0, "co2": 400.0, "pulso": 70.0,
-                "vent": "OFF", "ia_status": "Sin datos registrados", "pendiente": 0.0
+                "estado": "Normal", "vent": "OFF",
+                "ia_status": "Sin datos registrados", "pendiente": 0.0
             }
 
-        historial_co2 = [f[0] for f in reversed(filas)]
-        co2_actual, temp, hum, pulso = filas[0]
-        
-        ahora = datetime.now()
-        evaluacion = decidir_estado(
-            co2=co2_actual,
-            historial_co2=historial_co2,
-            temp=temp,
-            hum=hum,
-            pulso=pulso,
-            hora=ahora.hour,
-            dia_semana=ahora.weekday()
-        )
+        (co2_actual, temp, hum, pulso), evaluacion = resultado
 
         return {
+            "estado": evaluacion["estado"],
             "temp": round(temp, 1),
             "hum": round(hum, 1),
             "co2": int(co2_actual),
