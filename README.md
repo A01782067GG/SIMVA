@@ -76,6 +76,17 @@ curl http://localhost:8080/estado
 - `manifest.json` ya no declara íconos; falta crear un `icon.png` para que la PWA sea instalable.
 - Los endpoints de la versión anterior (`/enviar_lectura`, `/datos_actuales`, `/historial`) y `app.py`/`database.py` ya no existen.
 
+## Comentarios para el equipo
+Cosas que hay que revisar o confirmar antes de seguir (cambios del 19 oct 2026):
+- **Pines del ESP32:** `main_esp32.ino` usa relé en GPIO 26, LED en 25 y buzzer en 27 como valores provisionales. Confirmar con el circuito de potencia de Ingrid y ajustar si es distinto.
+- **Nivel del relé:** el código lo asume activo en HIGH. Si el módulo es activo en LOW hay que invertir los niveles en `aplicarActuadores()`.
+- **Sin probar en hardware:** el control de relé/LED/buzzer y la lectura de la respuesta del servidor (`procesarRespuesta`) no se han compilado ni probado en el ESP32. Lo que sí se probó con `curl` es la API: `/operador`, `/lectura` (devuelve `estado` y `ventilador`), `/estado` y `/ultimas`.
+- **Dashboard sin probar en navegador:** la tarjeta de Estado, el envío del operador y el aviso de datos simulados hay que verlos funcionando.
+- **Operador:** ahora lo fija el dashboard con `POST /operador` y es global (el último que cambió el selector). Si hay varias personas con el dashboard abierto, gana la última. ¿Es suficiente para la demo?
+- **Ícono de la PWA:** se quitó la referencia a `icon.png` del manifest; si se quiere instalar como app hay que crear el ícono y volver a declararlo.
+- **Chart.js por CDN:** si la Raspberry no tendrá internet en la demo, descargar Chart.js y servirlo desde `interfaz/`.
+- **Modelo de IA:** `ia/models/co2_model.joblib` no está en el repo; cada quien debe correr `python ia/train.py`. Sin él funciona solo la regla de pendiente. El modelo actual se entrena con datos sintéticos.
+
 ## Pendientes del proyecto
 - Integrar SCD41 (CO₂) y MAX30102 (pulso) en el firmware; quitar los `random()`.
 - Circuito de potencia: armar relé, ventilador, LED y buzzer y probar el código del ESP32 que ya los controla.
