@@ -99,7 +99,6 @@ Cosas que hay que revisar o confirmar antes de seguir (cambios del 19 oct 2026):
 - **Circuito de potencia:** unir las tierras (GND) de las fuentes de 12 V y 5 V con la del ESP32, y poner los diodos 1N5819 en antiparalelo con el ventilador y el vibrador si sus módulos no los traen. Resistencia en serie para el LED.
 - **Relé:** no se usa en el firmware. Si el equipo lo quiere mantener como corte de seguridad, definir su pin y regla.
 - **Documentación pendiente (`docs/`):** el Charter, el plan de riesgos (PRR 2 habla de un relé con optoacoplador) y el presupuesto no incluyen D4184, módulo vibratorio, fuente de 5 V ni diodos. Falta el diagrama de conexiones y el AM2302 ya no forma parte del proyecto.
-- **Selector de operador:** falta Mauricio en la lista del dashboard.
 - **Pulso `0`:** el ESP32 manda 0 cuando no hay dedo en el MAX30102; la lógica lo toma como pulso base (70) y el dashboard muestra `--`.
 - **Dashboard sin probar en navegador:** la tarjeta de Estado, el envío del operador y el aviso de datos simulados hay que verlos funcionando.
 - **Operador:** ahora lo fija el dashboard con `POST /operador` y es global (el último que cambió el selector). Si hay varias personas con el dashboard abierto, gana la última. ¿Es suficiente para la demo?

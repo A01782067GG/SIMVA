@@ -122,7 +122,6 @@ Etapas (monitor serial a 115200):
 - Compilar y depurar el firmware del ESP32 (nunca se ha compilado).
 - Registro y visualización de anomalías y un histórico más allá de los últimos 15 puntos de la gráfica (criterios del Charter).
 - Reentrenar el modelo con datos reales; hoy usa datos sintéticos.
-- Agregar a Mauricio al selector de operador.
 - Servir Chart.js localmente si la Raspberry no tendrá internet, y crear `interfaz/icon.png` si se quiere instalar como app.
 - Fijar versiones en `requirements.txt` (riesgo 15 del plan de riesgos).
 
