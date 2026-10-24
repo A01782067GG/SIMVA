@@ -10,6 +10,9 @@ def decidir_estado(co2, historial_co2=None, temp=25, hum=50, pulso=None, pulso_b
     Alerta: CO2 > 1000 ppm, o la IA predice el umbral en < 5 min.
             Si además el pulso está elevado, se marca como riesgo combinado.
     Emergencia: CO2 > 2000 ppm, o CO2 > 1000 con pulso elevado (> 25% sobre su base).
+
+    Salidas: ventilador_pct (0-100, proporcional al CO2) y vibracion_pct
+    (0 / 50 / 100 segun el estado); ventilador es 1 si ventilador_pct > 0.
     """
     historial_co2 = historial_co2 or []
 
@@ -53,11 +56,26 @@ def decidir_estado(co2, historial_co2=None, temp=25, hum=50, pulso=None, pulso_b
         estado = "Normal"
         msg_ia = "Ambiente Estable (Monitoreando IA)"
 
-    ventilador = 1 if estado in ("Alerta", "Emergencia") else 0
+    # Ventilador proporcional al CO2: 40 % en 1000 ppm hasta 100 % en 2000 ppm
+    if estado == "Emergencia":
+        ventilador_pct = 100
+    elif co2 >= 1000:
+        ventilador_pct = min(100, round(40 + (co2 - 1000) * 0.06))
+    elif ia_predice_riesgo:
+        ventilador_pct = 30  # ventilacion anticipada, aun bajo el umbral
+    else:
+        ventilador_pct = 0
+
+    # Modulo vibratorio: alerta fisica segun el estado
+    vibracion_pct = {"Normal": 0, "Alerta": 50, "Emergencia": 100}[estado]
+
+    ventilador = 1 if ventilador_pct > 0 else 0
 
     return {
         "estado": estado,
         "ventilador": ventilador,
+        "ventilador_pct": ventilador_pct,
+        "vibracion_pct": vibracion_pct,
         "msg_ia": msg_ia,
         "pendiente": pendiente,
         "minutos_a_umbral": minutos_a_umbral

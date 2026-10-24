@@ -82,7 +82,13 @@ class API:
         con.close()
         _, evaluacion = evaluar_ultimas()
         # El ESP32 usa estado y ventilador para accionar rele, LED y buzzer
-        return {"ok": True, "estado": evaluacion["estado"], "ventilador": evaluacion["ventilador"]}
+        return {
+            "ok": True,
+            "estado": evaluacion["estado"],
+            "ventilador": evaluacion["ventilador"],
+            "ventilador_pct": evaluacion["ventilador_pct"],
+            "vibracion_pct": evaluacion["vibracion_pct"]
+        }
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
@@ -108,7 +114,7 @@ class API:
         if resultado is None:
             return {
                 "temp": 22.0, "hum": 50.0, "co2": 400.0, "pulso": 70.0,
-                "estado": "Normal", "vent": "OFF",
+                "estado": "Normal", "vent": "OFF", "ventilador_pct": 0, "vibracion_pct": 0,
                 "ia_status": "Sin datos registrados", "pendiente": 0.0
             }
 
@@ -121,6 +127,8 @@ class API:
             "co2": int(co2_actual),
             "pulso": int(pulso) if pulso else 0,
             "vent": "ON" if evaluacion["ventilador"] == 1 else "OFF",
+            "ventilador_pct": evaluacion["ventilador_pct"],
+            "vibracion_pct": evaluacion["vibracion_pct"],
             "ia_status": evaluacion["msg_ia"],
             "pendiente": evaluacion["pendiente"]
         }
