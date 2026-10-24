@@ -5,6 +5,8 @@ Prototipo del curso *Implementación de Internet de las Cosas* (Tec de Monterrey
 
 **Objetivo (Project Charter):** antes del **3 de diciembre de 2026**, registrar datos cada ≤ 5 s y activar ventilador y LED en ≤ 5 s tras superar el umbral de CO₂ (1000 ppm), con diferencia ≤ 15 % frente a un monitor de referencia.
 
+> **Cambios recientes, cómo probar el código, pendientes y preguntas abiertas:** ver [`CAMBIOS_Y_PRUEBAS.md`](CAMBIOS_Y_PRUEBAS.md).
+
 ## Equipo
 | Persona | Rol |
 |---|---|

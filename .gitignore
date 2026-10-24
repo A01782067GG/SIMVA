@@ -221,3 +221,6 @@ __marimo__/
 
 # SIMVA
 lecturas.db
+
+# Modelo entrenado localmente (python ia/train.py)
+raspberry/ia/models/
