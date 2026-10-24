@@ -1,6 +1,9 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <DHT.h>
+#include <Wire.h>
+#include <SensirionI2cScd4x.h>  // Sensirion I2C SCD4x
+#include <MAX30105.h>           // SparkFun MAX3010x (sirve para el MAX30102)
+#include <heartRate.h>
 
 // --- CONFIGURACIÓN DE RED WI-FI ---
 const char* ssid = "TU_RED_WIFI";
@@ -10,44 +13,173 @@ const char* password = "TU_PASSWORD";
 // Reemplaza por la IP local que tenga tu Raspberry Pi (ejemplo: 192.168.1.50)
 const char* serverUrl = "http://192.168.1.50:8080/lectura";
 
-// --- CONFIGURACIÓN DE SENSORES ---
-#define DHTPIN 4
-#define DHTTYPE DHT22  // Sensor AM2302 / DHT22
-DHT dht(DHTPIN, DHTTYPE);
+// --- SENSORES (bus I2C: SDA = GPIO 21, SCL = GPIO 22) ---
+SensirionI2cScd4x scd4x;  // CO2, temperatura y humedad
+MAX30105 particleSensor;  // frecuencia cardiaca
 
-// --- ACTUADORES (pines por definir con el circuito de potencia final) ---
-const int PIN_RELE = 26;    // Relé del ventilador 12 V (activo en HIGH)
-const int PIN_LED = 25;     // LED de alerta
-const int PIN_BUZZER = 27;  // Buzzer, solo en Emergencia
+// --- ACTUADORES (pines provisionales, confirmar con el circuito de potencia) ---
+const int PIN_VENTILADOR = 26;  // PWM hacia el módulo D4184 (ventilador 12 V)
+const int PIN_VIBRADOR = 27;    // PWM hacia el módulo vibratorio de 5 V
+const int PIN_LED = 25;         // LED de estado
+const int PIN_BUZZER = 33;      // Buzzer activo (solo en Emergencia)
+
+const int PWM_FREQ = 5000;  // Hz
+const int PWM_BITS = 8;
+const int CANAL_VENTILADOR = 0;  // solo se usan con el core ESP32 2.x
+const int CANAL_VIBRADOR = 1;
+
+// --- RESPALDO LOCAL (si no hay WiFi o el servidor no responde) ---
+const float UMBRAL_CO2 = 1000.0;
+const float UMBRAL_EMERGENCIA = 2000.0;
 
 unsigned long lastTime = 0;
-const unsigned long timerDelay = 5000; // Enviar lecturas cada 5 segundos (Requerimiento Project Charter)
+const unsigned long timerDelay = 5000;  // Enviar lecturas cada 5 segundos (Requerimiento Project Charter)
 
-// Aplica la decisión del servidor a los actuadores
-void aplicarActuadores(bool ventilador, bool emergencia) {
-  digitalWrite(PIN_RELE, ventilador ? HIGH : LOW);
-  digitalWrite(PIN_LED, ventilador ? HIGH : LOW);
+// Última medición válida del SCD41 (llega cada ~5 s en modo periódico)
+float co2 = 0, temperatura = 0, humedad = 0;
+bool hayMedicionScd = false;
+unsigned long lastScdCheck = 0;
+
+// Frecuencia cardiaca: promedio de los últimos latidos (0 = sin dedo / sin lectura)
+const int PROMEDIO_LATIDOS = 4;
+float latidos[PROMEDIO_LATIDOS];
+int latidoIdx = 0;
+int latidosValidos = 0;
+unsigned long ultimoLatido = 0;
+float pulso = 0;
+
+void pwmInit(int pin, int canal) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(pin, PWM_FREQ, PWM_BITS);
+#else
+  ledcSetup(canal, PWM_FREQ, PWM_BITS);
+  ledcAttachPin(pin, canal);
+#endif
+}
+
+void pwmEscribir(int pin, int canal, int porcentaje) {
+  int duty = (constrain(porcentaje, 0, 100) * ((1 << PWM_BITS) - 1)) / 100;
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(pin, duty);
+#else
+  ledcWrite(canal, duty);
+#endif
+}
+
+// Aplica los niveles a los actuadores
+void aplicarActuadores(int ventiladorPct, int vibracionPct, bool emergencia) {
+  pwmEscribir(PIN_VENTILADOR, CANAL_VENTILADOR, ventiladorPct);
+  pwmEscribir(PIN_VIBRADOR, CANAL_VIBRADOR, vibracionPct);
+  digitalWrite(PIN_LED, (ventiladorPct > 0 || vibracionPct > 0) ? HIGH : LOW);
   digitalWrite(PIN_BUZZER, emergencia ? HIGH : LOW);
 }
 
-// Lee "ventilador" y "estado" de la respuesta {"ok": true, "estado": "...", "ventilador": 1}
+// Mismas reglas que logica.py, solo con CO2, para cuando el servidor no responde
+void controlLocal(float co2Actual) {
+  if (co2Actual > UMBRAL_EMERGENCIA) {
+    aplicarActuadores(100, 100, true);
+  } else if (co2Actual >= UMBRAL_CO2) {
+    int pct = min(100, (int)(40 + (co2Actual - UMBRAL_CO2) * 0.06));
+    aplicarActuadores(pct, 50, false);
+  } else {
+    aplicarActuadores(0, 0, false);
+  }
+}
+
+// Busca "clave": <entero> en el JSON de respuesta
+int leerEntero(const String& json, const char* clave, int porDefecto) {
+  int pos = json.indexOf(String("\"") + clave + "\"");
+  if (pos < 0) return porDefecto;
+  int dosPuntos = json.indexOf(':', pos);
+  if (dosPuntos < 0) return porDefecto;
+  return json.substring(dosPuntos + 1).toInt();
+}
+
+// Respuesta: {"ok": true, "estado": "...", "ventilador": 1, "ventilador_pct": 70, "vibracion_pct": 50}
 void procesarRespuesta(const String& response) {
-  int pos = response.indexOf("\"ventilador\"");
-  if (pos < 0) return;
-  int dos = response.indexOf(':', pos);
-  bool ventilador = dos >= 0 && response.substring(dos + 1).toInt() == 1;
+  if (response.indexOf("\"ventilador_pct\"") < 0) {
+    controlLocal(co2);
+    return;
+  }
+  int ventiladorPct = leerEntero(response, "ventilador_pct", 0);
+  int vibracionPct = leerEntero(response, "vibracion_pct", 0);
   bool emergencia = response.indexOf("Emergencia") >= 0;
-  aplicarActuadores(ventilador, emergencia);
+  aplicarActuadores(ventiladorPct, vibracionPct, emergencia);
+}
+
+// Consulta el SCD41 sin bloquear; guarda la medición cuando está lista
+void leerScd41() {
+  if (millis() - lastScdCheck < 500) return;
+  lastScdCheck = millis();
+
+  bool lista = false;
+  if (scd4x.getDataReadyStatus(lista) != 0 || !lista) return;
+
+  uint16_t co2Raw = 0;
+  float t = 0, h = 0;
+  if (scd4x.readMeasurement(co2Raw, t, h) != 0 || co2Raw == 0) return;
+  co2 = co2Raw;
+  temperatura = t;
+  humedad = h;
+  hayMedicionScd = true;
+}
+
+// Debe llamarse en cada vuelta del loop: la detección de latidos necesita muestreo continuo
+void leerMax30102() {
+  long ir = particleSensor.getIR();
+
+  if (ir < 50000) {  // sin dedo sobre el sensor
+    latidosValidos = 0;
+    pulso = 0;
+    return;
+  }
+
+  if (checkForBeat(ir)) {
+    unsigned long ahora = millis();
+    if (ultimoLatido > 0) {
+      float bpm = 60000.0 / (ahora - ultimoLatido);
+      if (bpm > 30 && bpm < 220) {
+        latidos[latidoIdx] = bpm;
+        latidoIdx = (latidoIdx + 1) % PROMEDIO_LATIDOS;
+        if (latidosValidos < PROMEDIO_LATIDOS) latidosValidos++;
+
+        float suma = 0;
+        for (int i = 0; i < latidosValidos; i++) suma += latidos[i];
+        pulso = suma / latidosValidos;
+      }
+    }
+    ultimoLatido = ahora;
+  }
 }
 
 void setup() {
   Serial.begin(115200);
-  dht.begin();
 
-  pinMode(PIN_RELE, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
-  aplicarActuadores(false, false);
+  pwmInit(PIN_VENTILADOR, CANAL_VENTILADOR);
+  pwmInit(PIN_VIBRADOR, CANAL_VIBRADOR);
+  aplicarActuadores(0, 0, false);
+
+  Wire.begin();
+
+  // SCD41 en medición periódica (una lectura cada ~5 s)
+  scd4x.begin(Wire, SCD41_I2C_ADDR_62);
+  scd4x.wakeUp();
+  scd4x.stopPeriodicMeasurement();
+  scd4x.reinit();
+  if (scd4x.startPeriodicMeasurement() != 0) {
+    Serial.println("Error iniciando el SCD41");
+  }
+
+  // MAX30102: LED rojo bajo, sin LED verde (solo hace falta rojo + IR)
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+    Serial.println("No se encontró el MAX30102");
+  } else {
+    particleSensor.setup();
+    particleSensor.setPulseAmplitudeRed(0x0A);
+    particleSensor.setPulseAmplitudeGreen(0);
+  }
 
   // Conexión Wi-Fi
   WiFi.begin(ssid, password);
@@ -62,60 +194,56 @@ void setup() {
 }
 
 void loop() {
+  leerMax30102();
+  leerScd41();
+
   // Enviar datos cada 5 segundos
   if ((millis() - lastTime) > timerDelay) {
-    if (WiFi.status() == WL_CONNECTED) {
-      
-      // 1. Lectura de sensores
-      float humedad = dht.readHumidity();
-      float temperatura = dht.readTemperature();
-      
-      // CO2 y Pulso (Si aún no se tiene la lectura real del sensor físico SCD41/MAX30102, se simula o lee)
-      float co2 = random(450, 1100);  // Reemplazar con scd41.readMeasurement() cuando esté armado
-      float pulso = random(65, 95);   // Reemplazar con max30102.getHeartRate()
-
-      if (isnan(humedad) || isnan(temperatura)) {
-        // No se envían valores inventados: se reintenta en el siguiente ciclo
-        Serial.println("Error leyendo el sensor AM2302/DHT22, lectura omitida");
-        lastTime = millis();
-        return;
-      }
-
-      // 2. Crear cliente HTTP
-      HTTPClient http;
-      http.begin(serverUrl);
-      http.addHeader("Content-Type", "application/json");
-
-      // 3. Crear Payload JSON
-      String jsonPayload = "{";
-      jsonPayload += "\"co2\":" + String(co2) + ",";
-      jsonPayload += "\"temp\":" + String(temperatura) + ",";
-      jsonPayload += "\"hum\":" + String(humedad) + ",";
-      jsonPayload += "\"pulso\":" + String(pulso);  // el operador lo asigna el servidor
-      jsonPayload += "}";
-
-      Serial.print("Enviando JSON: ");
-      Serial.println(jsonPayload);
-
-      // 4. Enviar petición HTTP POST a la Raspberry Pi
-      int httpResponseCode = http.POST(jsonPayload);
-
-      if (httpResponseCode > 0) {
-        String response = http.getString();
-        Serial.print("Respuesta Servidor: ");
-        Serial.print(httpResponseCode);
-        Serial.print(" ");
-        Serial.println(response);
-        procesarRespuesta(response);
-      } else {
-        Serial.print("Error enviando POST: ");
-        Serial.println(httpResponseCode);
-      }
-
-      http.end();
-    } else {
-      Serial.println("Wi-Fi desconectado");
-    }
     lastTime = millis();
+
+    if (!hayMedicionScd) {
+      Serial.println("Aún no hay medición del SCD41, lectura omitida");
+      return;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("Wi-Fi desconectado, control local");
+      controlLocal(co2);
+      WiFi.reconnect();
+      return;
+    }
+
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(3000);  // sin respuesta en 3 s -> control local
+
+    // Pulso 0 = sin dedo en el MAX30102
+    String jsonPayload = "{";
+    jsonPayload += "\"co2\":" + String(co2) + ",";
+    jsonPayload += "\"temp\":" + String(temperatura) + ",";
+    jsonPayload += "\"hum\":" + String(humedad) + ",";
+    jsonPayload += "\"pulso\":" + String(pulso);  // el operador lo asigna el servidor
+    jsonPayload += "}";
+
+    Serial.print("Enviando JSON: ");
+    Serial.println(jsonPayload);
+
+    int httpResponseCode = http.POST(jsonPayload);
+
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.print("Respuesta Servidor: ");
+      Serial.print(httpResponseCode);
+      Serial.print(" ");
+      Serial.println(response);
+      procesarRespuesta(response);
+    } else {
+      Serial.print("Error enviando POST: ");
+      Serial.println(httpResponseCode);
+      controlLocal(co2);
+    }
+
+    http.end();
   }
 }
