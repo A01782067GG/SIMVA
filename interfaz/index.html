@@ -129,6 +129,12 @@
         <div class="card">
             <h3>Ventilación</h3>
             <div id="vent" class="val off">OFF</div>
+            <span id="vent-pct" class="unit">0 %</span>
+        </div>
+        <div class="card">
+            <h3>Vibración</h3>
+            <div id="vib" class="val off">0</div>
+            <span class="unit">%</span>
         </div>
         <div class="card ia-card">
             <h3>Diagnóstico IA</h3>
@@ -186,7 +192,7 @@
                 const res = await fetch('/estado');
                 const data = await res.json();
                 
-                renderizarDatos(data.temp, data.hum, data.co2, data.pulso, data.vent, data.ia_status, data.pendiente, data.estado, false);
+                renderizarDatos(data.temp, data.hum, data.co2, data.pulso, data.vent, data.ia_status, data.pendiente, data.estado, false, data.ventilador_pct, data.vibracion_pct);
             } catch (err) {
                 // Modo Simulación en Desarrollo si no hay backend activo
                 let t = (20 + Math.random() * 8).toFixed(1);
@@ -199,11 +205,13 @@
                 let iaMsg = slope > 5 ? "Ventilación Anticipada" : "Ambiente Estable";
                 
                 const estadoSim = c > 2000 ? "Emergencia" : (ventState === "ON" ? "Alerta" : "Normal");
-                renderizarDatos(t, h, c, p, ventState, iaMsg, slope, estadoSim, true);
+                const ventSim = ventState === "ON" ? Math.min(100, Math.round(40 + Math.max(0, c - 1000) * 0.06)) : 0;
+                const vibSim = estadoSim === "Emergencia" ? 100 : (estadoSim === "Alerta" ? 50 : 0);
+                renderizarDatos(t, h, c, p, ventState, iaMsg, slope, estadoSim, true, ventSim, vibSim);
             }
         }
 
-        function renderizarDatos(t, h, c, p, v, iaMsg, slope, estado, simulado) {
+        function renderizarDatos(t, h, c, p, v, iaMsg, slope, estado, simulado, ventPct, vibPct) {
             const ahora = new Date().toLocaleTimeString();
 
             const estadoElem = document.getElementById("estado");
@@ -216,8 +224,13 @@
             document.getElementById("temp").innerText = t;
             document.getElementById("hum").innerText = h;
             document.getElementById("co2").innerText = c;
-            document.getElementById("pulso").innerText = p;
-            
+            // El ESP32 manda pulso 0 cuando el MAX30102 no detecta el dedo
+            document.getElementById("pulso").innerText = Number(p) > 0 ? p : "--";
+            document.getElementById("vent-pct").innerText = `${ventPct ?? 0} %`;
+            const vibElem = document.getElementById("vib");
+            vibElem.innerText = vibPct ?? 0;
+            vibElem.className = (vibPct ?? 0) > 0 ? "val warn" : "val off";
+
             // Ventilación
             const ventElem = document.getElementById("vent");
             ventElem.innerText = v;
