@@ -23,6 +23,13 @@ const int PIN_VIBRADOR = 27;    // PWM hacia el módulo vibratorio de 5 V
 const int PIN_LED = 25;         // LED de estado
 const int PIN_BUZZER = 33;      // Buzzer activo (solo en Emergencia)
 
+// Relé en serie entre la fuente de 12 V y el ventilador (no en paralelo con el D4184).
+// Se cierra solo cuando el ventilador tiene que girar, así el ventilador queda sin
+// alimentación si el ESP32 está apagado, arrancando o con el ventilador al 0 %.
+// GPIO 14 no sirve: emite PWM al arrancar y activaría el relé sin querer.
+const int PIN_RELE = 32;               // pin provisional, confirmar con el circuito
+const bool RELE_ACTIVO_ALTO = true;    // false si el módulo se activa con LOW
+
 const int PWM_FREQ = 5000;  // Hz
 const int PWM_BITS = 8;
 const int CANAL_VENTILADOR = 0;  // solo se usan con el core ESP32 2.x
@@ -68,6 +75,8 @@ void pwmEscribir(int pin, int canal, int porcentaje) {
 
 // Aplica los niveles a los actuadores
 void aplicarActuadores(int ventiladorPct, int vibracionPct, bool emergencia) {
+  bool ventiladorEncendido = ventiladorPct > 0;
+  digitalWrite(PIN_RELE, (ventiladorEncendido == RELE_ACTIVO_ALTO) ? HIGH : LOW);
   pwmEscribir(PIN_VENTILADOR, CANAL_VENTILADOR, ventiladorPct);
   pwmEscribir(PIN_VIBRADOR, CANAL_VIBRADOR, vibracionPct);
   digitalWrite(PIN_LED, (ventiladorPct > 0 || vibracionPct > 0) ? HIGH : LOW);
@@ -155,6 +164,9 @@ void leerMax30102() {
 void setup() {
   Serial.begin(115200);
 
+  // El relé arranca abierto: primero el nivel de apagado y luego el pin como salida
+  digitalWrite(PIN_RELE, RELE_ACTIVO_ALTO ? LOW : HIGH);
+  pinMode(PIN_RELE, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
   pwmInit(PIN_VENTILADOR, CANAL_VENTILADOR);
