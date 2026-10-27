@@ -6,16 +6,30 @@ from logica import decidir_estado
 
 DB = "lecturas.db"
 
+# Anomalia: salto de CO2 (ppm) entre dos lecturas consecutivas
+UMBRAL_SALTO_CO2 = 150
+
 def init_db():
     con = sqlite3.connect(DB)
     # Tabla con soporte para CO2, temp, hum, pulso y operador
     con.execute("""CREATE TABLE IF NOT EXISTS lecturas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         fecha TEXT, co2 REAL, temp REAL, hum REAL, pulso REAL, operador TEXT)""")
+    # Anomalias y cambios de estado que se muestran en el dashboard
+    con.execute("""CREATE TABLE IF NOT EXISTS eventos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha TEXT, tipo TEXT, detalle TEXT, co2 REAL)""")
     con.commit()
     con.close()
 
 operador_activo = "anonimo"
+ultimo_estado = None  # estado de la lectura anterior, para detectar cambios
+
+def registrar_evento(con, tipo, detalle, co2):
+    con.execute(
+        "INSERT INTO eventos (fecha, tipo, detalle, co2) VALUES (?,?,?,?)",
+        (datetime.now().isoformat(), tipo, detalle, co2)
+    )
 
 def evaluar_ultimas():
     """ Evalua las ultimas lecturas guardadas; None si no hay datos """
@@ -66,7 +80,9 @@ class API:
             pulso = float(d.get("pulso", 70))
         except (KeyError, TypeError, ValueError):
             raise cherrypy.HTTPError(400, "Campos co2, temp, hum (y pulso) deben ser numericos")
+        global ultimo_estado
         con = sqlite3.connect(DB)
+        anterior = con.execute("SELECT co2 FROM lecturas ORDER BY id DESC LIMIT 1").fetchone()
         con.execute(
             "INSERT INTO lecturas (fecha, co2, temp, hum, pulso, operador) VALUES (?,?,?,?,?,?)",
             (
@@ -78,10 +94,26 @@ class API:
                 d.get("operador") or operador_activo
             )
         )
+        con.commit()  # evaluar_ultimas() usa otra conexion y debe ver esta lectura
+        _, evaluacion = evaluar_ultimas()
+
+        # Registro de anomalias: salto brusco de CO2 y cambios de estado (incluye los que anticipa la IA)
+        if anterior is not None and abs(co2 - anterior[0]) > UMBRAL_SALTO_CO2:
+            sentido = "subió" if co2 > anterior[0] else "bajó"
+            registrar_evento(
+                con, "salto_co2",
+                f"CO2 {sentido} de {anterior[0]:.0f} a {co2:.0f} ppm entre lecturas", co2
+            )
+        if ultimo_estado is not None and evaluacion["estado"] != ultimo_estado:
+            registrar_evento(
+                con, "cambio_estado",
+                f"{ultimo_estado} → {evaluacion['estado']}: {evaluacion['msg_ia']}", co2
+            )
+        ultimo_estado = evaluacion["estado"]
         con.commit()
         con.close()
-        _, evaluacion = evaluar_ultimas()
-        # El ESP32 usa estado y ventilador para accionar rele, LED y buzzer
+
+        # El ESP32 usa estas salidas para accionar rele, ventilador, vibrador, LED y buzzer
         return {
             "ok": True,
             "estado": evaluacion["estado"],
@@ -104,6 +136,21 @@ class API:
         ).fetchall()
         con.close()
         return [{"fecha": f, "co2": c, "temp": t, "hum": h, "pulso": p} for f, c, t, h, p in filas]
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def eventos(self, n=10):
+        """ Regresa los ultimos N eventos (anomalias y cambios de estado) """
+        try:
+            n = max(1, min(int(n), 200))
+        except ValueError:
+            raise cherrypy.HTTPError(400, "n debe ser un entero")
+        con = sqlite3.connect(DB)
+        filas = con.execute(
+            "SELECT fecha, tipo, detalle, co2 FROM eventos ORDER BY id DESC LIMIT ?", (n,)
+        ).fetchall()
+        con.close()
+        return [{"fecha": f, "tipo": t, "detalle": d, "co2": c} for f, t, d, c in filas]
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
