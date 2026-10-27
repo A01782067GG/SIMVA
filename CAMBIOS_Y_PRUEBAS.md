@@ -138,7 +138,7 @@ Etapas (monitor serial a 115200):
 - Calibrar el CO₂ del SCD41 y comparar con el monitor de referencia.
 
 **Documentos que no pude editar o requieren decisión del equipo**
-- `docs/PROJECT CHARTER.pdf` (versión del 27 oct) ya tiene el líder corregido (Iván) y a Mauricio en la portada con su matrícula. **Todavía le falta:** en "Recursos clave asignados", agregar D4184, módulo vibratorio, fuente de 5 V, diodos y el relé en serie; en "Insumos", la fuente de 5 V; en los entregables, el ventilador y vibrador; y revisar el presupuesto de ~$1,100 MXN. Un PDF no se edita desde aquí: hay que regenerarlo desde el Google Doc (o pasarme el enlace y autorizarme a editarlo).
+- **Project Charter (Google Doc).** El Doc ya se corrigió (27 oct): equipos (relé en serie, ventilador Steren con D4184, módulo vibratorio), insumos (fuentes de 12 V y 5 V, diodos 1N5819), entregables (módulo vibratorio), acentos en los nombres (Domínguez Ramírez, Nájera) y el enlace del correo de Iván. **Pendiente:** revisar el presupuesto de ~$1,100 MXN (no se tocó). `docs/PROJECT CHARTER.pdf` ya se re-exportó desde el Doc con estas correcciones.
 - `docs/02_Plan_Gestion_Riesgos.xlsx`, PRR 2: la acción *"Usar módulo relé con optoacoplador"* aparece como Completada. Con el relé confirmado sigue siendo válida solo si el módulo de relé trae optoacoplador; confirmarlo con Ingrid.
 - PRR 1: la acción de respaldo (STCC4 o MH-Z19B) sigue "En espera". Si el SCD41 ya llegó, se puede cerrar.
 - Falta el **diagrama de conexiones** que pide el Charter (la tabla de la sección 2 es el borrador).
@@ -159,7 +159,7 @@ Etapas (monitor serial a 115200):
 | 7 | ¿Operador global basta? | Sí, para una demo con una persona probando a la vez. | El operador activo se ve junto al título del dashboard. |
 | 8 | ¿Sigue la API externa de IA? | No, todo es local (scikit-learn). | Riesgo 13 y PRR 6 reescritos como "modelo ausente o corrupto". |
 | 10 | ¿Internet en la demo? | Que no dependan de ello. | Chart.js ya es local. Falta fijar y anotar la IP de la Raspberry (o usar hotspot). |
-| 11 | ¿Quién es el líder? | Iván. | Corregido en `docs/PROJECT CHARTER.pdf`. |
+| 11 | ¿Quién es el líder? | Iván. | Corregido en el Charter (Doc) y en `docs/PROJECT CHARTER.pdf`. |
 | 12 | ¿Falta Mauricio en la portada? | Sí, con su matrícula (A01779117 según su correo del Charter; confirmar). | Hecho en `docs/PROJECT CHARTER.pdf` con A01779117. |
 
 ### Respondidas con reservas (ya implementadas, con puntos por validar)

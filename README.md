@@ -93,7 +93,7 @@ curl http://localhost:8080/estado
 | Modelo de IA | Entrena y carga bien, pero con datos sintéticos. |
 | Firmware del ESP32 | Escrito (SCD41, MAX30102, PWM, relé, respaldo local), **sin compilar ni probar**. |
 | Circuito de potencia | Sin armar o sin confirmar: pines, módulo vibratorio y relé pendientes. |
-| Documentación (`docs/`) | Riesgos actualizados y Charter con líder y portada corregidos; faltan en el Charter la lista de equipo y el presupuesto, y el diagrama de conexiones. |
+| Documentación (`docs/`) | Riesgos actualizados y Charter corregido (equipo, insumos, entregables); falta el presupuesto del Charter y el diagrama de conexiones. |
 
 ## Problemas conocidos (a resolver)
 - Sin `python ia/train.py` el predictor funciona solo con la regla de pendiente (el servidor lo avisa al arrancar).
@@ -108,8 +108,8 @@ Cosas que hay que revisar o confirmar antes de seguir (actualizado el 27 oct 202
 - **Frecuencia PWM y módulos:** se usan 5 kHz; verificar con el D4184, el ventilador Steren y el módulo vibratorio (si hacen ruido o no responden, probar otra frecuencia). Confirmar si el módulo vibratorio recibe PWM directo por su pin de señal.
 - **Circuito de potencia:** unir las tierras (GND) de las fuentes de 12 V y 5 V con la del ESP32, y poner los diodos 1N5819 en antiparalelo con el ventilador y el vibrador si sus módulos no los traen. Resistencia en serie para el LED.
 - **Relé (decisión de diseño a validar):** va en serie entre la fuente de 12 V y el ventilador. Se había propuesto cortarlo si "Emergencia" duraba más de 30 s, pero eso apagaría la ventilación justo cuando más hace falta (CO₂ > 2000 ppm), así que el firmware lo usa como **interruptor de potencia**: cerrado solo cuando el ventilador debe girar (> 0 %) y abierto en el arranque y con el ventilador en 0 %. Si el equipo prefiere una protección contra fallas (por ejemplo, abrirlo si el ventilador falla), falta definir qué la dispara. Se usa GPIO 32 (provisional) en lugar de GPIO 14, que emite PWM al arrancar y activaría el relé sin querer. Confirmar con Ingrid el pin real, si el módulo se activa con HIGH o LOW (`RELE_ACTIVO_ALTO`) y si tiene optoacoplador.
-- **Documentación pendiente (`docs/`):** el Charter (`PROJECT CHARTER.pdf`) y su presupuesto todavía no incluyen D4184, módulo vibratorio, fuente de 5 V ni diodos (un PDF no se puede editar desde el repo; hay que regenerarlo desde el Google Doc). Falta el diagrama de conexiones. Ya se actualizaron el riesgo 3 y el PRR 2 (voltajes), el PRR 1 (AM2302 fuera del proyecto) y el riesgo 13 / PRR 6 (el sistema de IA es 100 % local, el riesgo ahora es que el modelo falte o se corrompa).
-- **Charter:** ya se corrigió el líder (Iván) y se agregó a Mauricio en la portada con su matrícula (A01779117). Quedan el equipo, los insumos y el presupuesto.
+- **Documentación pendiente (`docs/`):** el presupuesto del Charter todavía no refleja D4184, módulo vibratorio, fuente de 5 V ni diodos. Falta el diagrama de conexiones. Ya se actualizaron el riesgo 3 y el PRR 2 (voltajes), el PRR 1 (AM2302 fuera del proyecto) y el riesgo 13 / PRR 6 (el sistema de IA es 100 % local, el riesgo ahora es que el modelo falte o se corrompa).
+- **Charter:** ya se corrigió el líder (Iván) y se agregó a Mauricio en la portada con su matrícula (A01779117). El Doc ya tiene equipos, insumos y entregables actualizados; queda el presupuesto.
 - **Pulso `0`:** el ESP32 manda 0 cuando no hay dedo en el MAX30102; la lógica lo toma como pulso base (70) y el dashboard muestra `--`.
 - **Operador:** lo fija el dashboard con `POST /operador` y es global (el último que cambió el selector). Se decidió que es suficiente para la demo con una persona probando a la vez; el nombre activo se ve junto al título.
 - **Ícono de la PWA:** se quitó la referencia a `icon.png` del manifest; si se quiere instalar como app hay que crear el ícono y volver a declararlo.
