@@ -7,7 +7,7 @@ Actualizado el 27 oct 2026 (con las respuestas del equipo a las 12 preguntas). E
 ### Decisiones ya tomadas (no se vuelven a discutir)
 - **Listado final de hardware confirmado:** ESP32, Raspberry Pi 4 (4 GB) con microSD, SCD41, MAX30102, ventilador Steren 12 V con módulo D4184, módulo vibratorio 5 V, LED, buzzer **activo**, fuentes de 12 V y 5 V, protoboard, jumpers, resistencias y diodos 1N5819.
 - **El AM2302 sale del proyecto.** El SCD41 ya mide temperatura y humedad. Se borró `esp32/leer_am2302.ino`.
-- **El relé sigue en el circuito**, en serie entre la fuente de 12 V y el ventilador (no en paralelo con el D4184). **El firmware todavía no lo controla**: falta definir su regla (ver pregunta 1). El D4184 regula el ventilador por PWM.
+- **El relé sigue en el circuito**, en serie entre la fuente de 12 V y el ventilador (no en paralelo con el D4184). El firmware lo usa como **interruptor de potencia**: cerrado solo cuando el ventilador debe girar (> 0 %) y abierto al arrancar y con el ventilador en 0 % (ver pregunta 1). El D4184 regula la velocidad por PWM.
 - **Ventilador proporcional al CO₂.** **Vibración** apagada en Normal, 50 % en Alerta, 100 % en Emergencia.
 - **El ESP32 ejecuta la lógica de control:** aplica los niveles que manda el servidor y, si no hay respuesta, decide solo con el CO₂ (respaldo local).
 
@@ -24,6 +24,10 @@ Actualizado el 27 oct 2026 (con las respuestas del equipo a las 12 preguntas). E
 | `0131808`, `761f706`, `fc982d6` | `docs/`, `.gitignore`, READMEs, esta guía y su PDF | Documentación actualizada y `raspberry/ia/models/` ignorado. |
 | `35870c0` | `docs/02_Plan_Gestion_Riesgos.xlsx` | PRR 1 sin AM2302; riesgo 13 y PRR 6 reescritos (modelo de IA ausente o corrupto). |
 | `056af0b` | `interfaz/` | Operador activo visible junto al título; Chart.js v4.4.1 local en `interfaz/vendor/` (sin CDN). Probado en Chrome contra el servidor. |
+| `a12db28` | `raspberry/servidor.py` | Tabla `eventos` y `GET /eventos`: registra saltos de CO₂ > 150 ppm entre lecturas y cambios de estado. |
+| `f0350f4` | `interfaz/index.html` | Lista de eventos y anomalías recientes; la gráfica carga las últimas 60 lecturas al abrir la página. |
+| `8651e50` | `esp32/main_esp32.ino` | Relé en serie controlado por el nivel del ventilador (GPIO 32 provisional, `RELE_ACTIVO_ALTO`). |
+| `083a3f5` | `raspberry/requirements.txt` | Versiones fijas (riesgo 15). |
 
 ### Reglas de salida (`raspberry/logica.py`)
 | Condición | Estado | Ventilador | Vibración | LED | Buzzer |
@@ -45,7 +49,7 @@ El ESP32 usa las mismas reglas con el CO₂ local (`controlLocal()`) si no hay W
 | Módulo vibratorio | Señal ← GPIO 27. Alimentación 5 V de la fuente de 5 V | Ver pregunta 3. |
 | LED | GPIO 25 → resistencia (220 a 330 Ω) → LED → GND | |
 | Buzzer activo | GPIO 33 → GND | Si consume más de 12 mA, usar un transistor o módulo con driver. |
-| Relé (sin programar) | En serie entre la fuente de 12 V y el ventilador; su pin de control está por definir | Se propuso GPIO 14, pero emite PWM al arrancar. Ver pregunta 1. |
+| Relé | Contactos en serie entre la fuente de 12 V y el ventilador; control ← GPIO 32 | Se propuso GPIO 14, pero emite PWM al arrancar. Cambiar `RELE_ACTIVO_ALTO` si el módulo se activa con LOW. Ver pregunta 1. |
 | **GND común** | GND del ESP32, de la fuente de 12 V y de la fuente de 5 V unidos | Obligatorio antes de energizar (PRR 2). |
 
 Los pines se cambian en las constantes del inicio de `esp32/main_esp32.ino`.
@@ -88,12 +92,13 @@ print(json.load(urllib.request.urlopen(URL + "/estado")))
 
 Las lecturas se acumulan en la base: la IA usa las últimas 10, así que una subida rápida (por ejemplo 500 a 900) puede dar Alerta anticipada con ventilador al 30 %. Es normal.
 
-4. Pulso alto: envía `"co2": 1200, "pulso": 100` y debe dar **Emergencia** (pulso > 25 % sobre 70 bpm con CO₂ > 1000).
-5. Entradas inválidas: `POST /lectura` con `{"co2": "abc"}` debe responder 400.
+4. **Eventos y anomalías:** `GET /eventos` debe listar un `cambio_estado` cuando el estado cambia y un `salto_co2` cuando dos lecturas consecutivas difieren en más de 150 ppm (por ejemplo 530 a 900). Verificado el 27 oct con la secuencia 500, 520, 530, 900, 905, 1500, 1520, 800, 420: 4 saltos y 1 cambio de estado (Normal a Alerta por la IA). Con lecturas enviadas de golpe la IA ve una pendiente exagerada y puede dar Alerta anticipada; con el ESP32 real (una lectura cada 5 s) es más realista.
+5. Pulso alto: envía `"co2": 1200, "pulso": 100` y debe dar **Emergencia** (pulso > 25 % sobre 70 bpm con CO₂ > 1000).
+6. Entradas inválidas: `POST /lectura` con `{"co2": "abc"}` debe responder 400.
 
 ### Paso 2. Dashboard
 1. Con el servidor activo abre `http://localhost:8080`.
-2. Tras el paso 1 debe mostrar Estado, CO₂, ventilador con su porcentaje y vibración. Sin lecturas muestra "Sin datos registrados".
+2. Tras el paso 1 debe mostrar Estado, CO₂, ventilador con su porcentaje, vibración, la gráfica con las lecturas recientes (se cargan de la base al abrir la página) y la lista de **eventos y anomalías recientes**. Sin lecturas muestra "Sin datos registrados". Probado en Chrome el 27 oct.
 3. Detén el servidor: en 3 s debe aparecer **"⚠ Datos simulados (sin servidor)"**.
 4. Cambia el operador en el selector y envía una lectura sin campo `operador`: `GET /ultimas` no lo muestra, pero la base guarda el operador elegido (`sqlite3 lecturas.db "select operador from lecturas order by id desc limit 1"`).
 
@@ -107,7 +112,7 @@ Preparación en Arduino IDE:
 Etapas (monitor serial a 115200):
 1. **Solo SCD41 + WiFi.** Debe imprimir cada 5 s `Enviando JSON: {...}` y `Respuesta Servidor: 200 {...}`. Al soplar sobre el sensor el CO₂ debe subir y aparecer en el dashboard.
 2. **Agregar MAX30102.** Con el dedo sobre el sensor, `pulso` debe estabilizarse en 60 a 100 bpm en unos segundos; sin dedo debe enviar `0`. (Los latidos se detectan solo si el loop corre continuo.)
-3. **Salidas sin carga.** Con un multímetro o LED en cada pin: GPIO 26 y 27 deben variar su tensión media con el CO₂ (PWM), GPIO 25 se enciende en Alerta/Emergencia y GPIO 33 solo en Emergencia. Se puede forzar enviando lecturas desde `prueba_api.py` y mirando la respuesta en el serial.
+3. **Salidas sin carga.** Con un multímetro o LED en cada pin: GPIO 26 y 27 deben variar su tensión media con el CO₂ (PWM), GPIO 25 se enciende en Alerta/Emergencia, GPIO 33 solo en Emergencia y GPIO 32 (relé) debe estar activo siempre que el ventilador esté por encima de 0 %. Se puede forzar enviando lecturas desde `prueba_api.py` y mirando la respuesta en el serial.
 4. **Con carga** (solo después de unir GND y poner el diodo): ventilador por el D4184 y módulo vibratorio. Verificar que el ventilador arranque con 40 % de ciclo; si no gira, subir ese mínimo en `logica.py` (y en `controlLocal()`).
 5. **Respaldo local.** Apaga el servidor (o el WiFi): en el siguiente ciclo debe imprimir `Error enviando POST` o `Wi-Fi desconectado` y seguir accionando los actuadores según el CO₂.
 
@@ -116,19 +121,17 @@ Etapas (monitor serial a 115200):
 |---|---|
 | Lecturas cada ≤ 5 s | Dejar 10 min y revisar `lecturas.db`: `select fecha from lecturas` debe mostrar saltos de ~5 s sin huecos. |
 | Ventilador y LED en ≤ 5 s tras superar 1000 ppm | Exhalar en una caja cerrada con el sensor; cronometrar desde que el serial muestra más de 1000 ppm hasta que cambian ventilador y LED. |
-| Anomalía provocada, registrada y visible | Provocar una subida rápida de CO₂; hoy el dashboard muestra el diagnóstico IA, pero **no hay registro histórico de anomalías** (pendiente, sección 4). |
+| Anomalía provocada, registrada y visible | Exhalar sobre el sensor para provocar un salto de CO₂; debe aparecer en "Eventos y anomalías recientes" del dashboard y en `GET /eventos`. Ajustar `UMBRAL_SALTO_CO2` en `servidor.py` si con el SCD41 real no se dispara (o se dispara con el ruido normal). |
 | Diferencia ≤ 15 % frente al monitor de referencia | Medir en paralelo con el monitor comercial y documentar la comparación. |
 
 ## 4. Lo que falta
 
 **Software**
 - Compilar y depurar el firmware del ESP32 (nunca se ha compilado).
-- Registro y visualización de anomalías y un histórico más allá de los últimos 15 puntos de la gráfica (criterios del Charter).
+- Ajustar el umbral de anomalía (150 ppm) con datos reales del SCD41, y decidir si el pulso también cuenta como anomalía.
 - Reentrenar el modelo con datos reales; hoy usa datos sintéticos.
-- **Anomalías** (propuesta, sin programar): salto de CO₂ > 150 ppm entre lecturas consecutivas, guardado en una tabla `eventos` de SQLite y mostrado como lista corta en el dashboard. Decidir si además se usa el modelo (el Charter dice "IA") y si el pulso cuenta.
-- **Relé:** programar su control cuando se defina la regla (pregunta 1).
+- Si el profesor espera un detector de anomalías entrenado ("IA"), sumarlo al modelo; hoy la anomalía es una regla (salto de CO₂) y los cambios de estado incluyen las alertas que anticipa la IA.
 - Crear `interfaz/icon.png` si se quiere instalar el dashboard como app.
-- Fijar versiones en `requirements.txt` (riesgo 15 del plan de riesgos).
 
 **Hardware**
 - Armar y revisar el circuito de potencia (PRR 2): revisarlo con un compañero antes de energizar, GND común y diodos.
@@ -159,9 +162,9 @@ Etapas (monitor serial a 115200):
 | 11 | ¿Quién es el líder? | Iván. | Falta corregir la línea de Ingrid en el Google Doc del Charter. |
 | 12 | ¿Falta Mauricio en la portada? | Sí, con su matrícula (A01779117 según su correo del Charter; confirmar). | Falta hacerlo en el Google Doc del Charter. |
 
-### Respondidas con reservas
-- **1. Relé.** Sigue en el circuito: en serie entre la fuente de 12 V y el ventilador, no en paralelo con el D4184. Propuesta recibida: GPIO 14 y cortar si "Emergencia" dura más de 30 s. **Problemas:** (a) cortar el ventilador en Emergencia apaga la ventilación justo cuando más hace falta; quizá la intención es proteger contra una falla del ventilador o del D4184 o contra un firmware colgado. (b) GPIO 14 emite PWM al arrancar el ESP32 y podría activar el relé; mejor otro pin o un pull-down. (c) Falta el nivel de activación del módulo y si tiene optoacoplador. **Pendiente de definir:** qué lo dispara, cuándo se vuelve a cerrar y en qué pin está realmente.
-- **9. Anomalía.** Propuesta: salto de CO₂ > 150 ppm entre lecturas consecutivas, guardado en una tabla `eventos` y mostrado en el dashboard. Es viable pero es desarrollo nuevo y el Charter pide "IA": decidir si el modelo también participa y si el pulso cuenta. Sin programar.
+### Respondidas con reservas (ya implementadas, con puntos por validar)
+- **1. Relé.** Sigue en el circuito: en serie entre la fuente de 12 V y el ventilador, no en paralelo con el D4184. La propuesta recibida (GPIO 14 y cortar si "Emergencia" dura más de 30 s) tenía dos problemas: cortar el ventilador en Emergencia apaga la ventilación justo cuando más hace falta, y GPIO 14 emite PWM al arrancar el ESP32 y podría activar el relé. **Lo que se implementó (8651e50, decisión mía a validar):** el relé es un interruptor de potencia, cerrado solo cuando el ventilador debe girar (> 0 %) y abierto al arrancar y con el ventilador en 0 %, en GPIO 32 (provisional). **Sigue pendiente:** el pin real, si el módulo se activa con HIGH o LOW (`RELE_ACTIVO_ALTO`), si tiene optoacoplador (PRR 2) y, si el equipo quiere además una protección contra fallas, qué la dispara y cuándo se vuelve a cerrar.
+- **9. Anomalía.** Implementada con la propuesta recibida (a12db28 y f0350f4): tabla `eventos`, `GET /eventos` y lista en el dashboard; registra saltos de CO₂ > 150 ppm entre lecturas consecutivas y cambios de estado. **Sigue pendiente** decidir si el pulso cuenta, validar el umbral con el sensor real y si hace falta un detector entrenado.
 
 ### Siguen abiertas (se resuelven con el circuito armado)
 - **3. Módulo vibratorio:** ¿acepta PWM directo? Si es un motor suelto de 2 cables necesita transistor (y diodo); si es un módulo de 3 pines suele traer el driver (se ve un componente pequeño negro cerca de los pines).

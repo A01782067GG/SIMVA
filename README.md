@@ -24,7 +24,7 @@ MAX30102 (pulso) ─────┴─► ESP32 ──(WiFi, POST /lectura cada 
                            │  ▲                                      CherryPy + SQLite + IA
    PWM: ventilador (D4184) │  └── respuesta: estado + niveles ──────────┘
         vibrador, LED, buzzer                                              │
-                                       Dashboard web (interfaz/) ◄─────────┘ GET /estado, /ultimas
+                                       Dashboard web (interfaz/) ◄─────────┘ GET /estado, /ultimas, /eventos
 ```
 
 ### Hardware (listado final confirmado)
@@ -36,7 +36,7 @@ MAX30102 (pulso) ─────┴─► ESP32 ──(WiFi, POST /lectura cada 
 | Alimentación | Fuente de 12 V (ventilador) y fuente de 5 V (módulo vibratorio) |
 | Montaje | Protoboard, jumpers, resistencias, diodos 1N5819 (protección del circuito de potencia) |
 
-El relé **sigue en el circuito**: va en serie entre la fuente de 12 V y el ventilador (no en paralelo con el D4184). El firmware todavía no lo controla porque falta definir qué lo activa (ver *Comentarios para el equipo*).
+El relé **sigue en el circuito**: va en serie entre la fuente de 12 V y el ventilador (no en paralelo con el D4184). El firmware lo cierra solo cuando el ventilador tiene que girar (nivel > 0 %), de modo que el ventilador queda sin alimentación al arrancar el ESP32 o con el ventilador en 0 %.
 
 El ESP32 mide, manda la lectura y aplica los niveles que devuelve el servidor. Si no hay WiFi o el servidor no responde en 3 s, aplica las mismas reglas con el CO₂ local (`controlLocal()`).
 
@@ -50,10 +50,11 @@ El ESP32 mide, manda la lectura y aplica los niveles que devuelve el servidor. S
 | `docs/` | Project Charter + WBS (PDF), Plan de Gestión de Riesgos (xlsx), Plan de RH: matriz de habilidades y RACI (docx). |
 
 ### `raspberry/`
-- **`servidor.py`** (puerto **8080**, `0.0.0.0`). Base SQLite `lecturas.db` (se crea sola), tabla `lecturas(id, fecha, co2, temp, hum, pulso, operador)`. Sirve también `interfaz/` como sitio estático en `/`. Endpoints:
+- **`servidor.py`** (puerto **8080**, `0.0.0.0`). Base SQLite `lecturas.db` (se crea sola), tablas `lecturas(id, fecha, co2, temp, hum, pulso, operador)` y `eventos(id, fecha, tipo, detalle, co2)`. Sirve también `interfaz/` como sitio estático en `/`. Endpoints:
   - `POST /lectura`: JSON `{"co2", "temp", "hum", "pulso", "operador"}` (`operador` opcional: si falta se usa el activo); guarda y responde `{"ok": true, "estado", "ventilador": 0|1, "ventilador_pct": 0-100, "vibracion_pct": 0-100}`. El ESP32 usa la respuesta para accionar ventilador y vibrador por PWM, LED y buzzer.
   - `POST /operador`: JSON `{"operador": "ivan"}`; fija el operador que se asigna a las lecturas que no traen uno (lo llama el dashboard al cambiar el selector).
   - `GET /ultimas?n=20`: últimas N lecturas.
+  - `GET /eventos?n=10`: últimos N eventos registrados. Tipos: `salto_co2` (anomalía: el CO₂ cambia más de 150 ppm entre dos lecturas consecutivas, `UMBRAL_SALTO_CO2` en `servidor.py`) y `cambio_estado` (Normal / Alerta / Emergencia, incluye las alertas que anticipa la IA).
   - `GET /estado`: última lectura + evaluación: `{estado, temp, hum, co2, pulso, vent: "ON"|"OFF", ia_status, pendiente}`.
 - **`logica.py`**: `decidir_estado()` consulta al predictor y aplica:
   - **Emergencia**: CO₂ > 2000 ppm, o CO₂ > 1000 con pulso > 25 % sobre su base (70 bpm).
@@ -64,13 +65,13 @@ El ESP32 mide, manda la lectura y aplica los niveles que devuelve el servidor. S
 - **`ia/train.py`**: genera datos sintéticos y entrena un `DecisionTreeClassifier` (features: hora, día, CO₂, pendiente, temperatura, pulso) guardado en `ia/models/co2_model.joblib`. **`ia/predictor.py`** debe exponer `SIMVAPredictor.evaluar(...)`, que devuelve `minutos_estimados_umbral`, `recomendacion_ventilacion_ia` y `co2_pendiente_ppm_min`.
 
 ### `interfaz/`
-Dashboard oscuro con tarjetas (temperatura, humedad, CO₂, pulso, estado, ventilación con su porcentaje, vibración, diagnóstico IA), selector de operador (Iván, Ingrid, Edgar, Leonardo) con el **operador activo** visible junto al título, y gráfica de CO₂ en tiempo real, actualizado cada 3 s. Si el backend no responde, cae a datos simulados y lo avisa en la tarjeta de Estado ("⚠ Datos simulados"). Se probó en Chrome contra el servidor local.
+Dashboard oscuro con tarjetas (temperatura, humedad, CO₂, pulso, estado, ventilación con su porcentaje, vibración, diagnóstico IA), selector de operador (Iván, Ingrid, Edgar, Leonardo) con el **operador activo** visible junto al título, gráfica de CO₂ en tiempo real (carga las últimas 60 lecturas de la base al abrir la página) y lista de **eventos y anomalías recientes**, actualizado cada 3 s. Si el backend no responde, cae a datos simulados y lo avisa en la tarjeta de Estado ("⚠ Datos simulados"). Se probó en Chrome contra el servidor local.
 
 ## Puesta en marcha
 
 ```bash
 cd raspberry
-pip install -r requirements.txt
+pip install -r requirements.txt   # versiones fijas, probadas con Python 3.11 o superior
 python ia/train.py        # genera el modelo (una vez)
 python servidor.py        # dashboard en http://localhost:8080
 ```
@@ -86,17 +87,17 @@ curl http://localhost:8080/estado
 
 ## Problemas conocidos (a resolver)
 - Sin `python ia/train.py` el predictor funciona solo con la regla de pendiente (el servidor lo avisa al arrancar).
-- Los pines de ventilador (26), vibrador (27), LED (25) y buzzer (33) en `main_esp32.ino` son provisionales y el firmware nuevo no se ha compilado ni probado en hardware.
+- Los pines de relé (32), ventilador (26), vibrador (27), LED (25) y buzzer (33) en `main_esp32.ino` son provisionales y el firmware nuevo no se ha compilado ni probado en hardware.
 - `manifest.json` ya no declara íconos; falta crear un `icon.png` para que la PWA sea instalable.
 - Los endpoints de la versión anterior (`/enviar_lectura`, `/datos_actuales`, `/historial`) y `app.py`/`database.py` ya no existen.
 
 ## Comentarios para el equipo
 Cosas que hay que revisar o confirmar antes de seguir (actualizado el 27 oct 2026; el detalle y las 12 preguntas están en [`CAMBIOS_Y_PRUEBAS.md`](CAMBIOS_Y_PRUEBAS.md)):
-- **Pines del ESP32:** `main_esp32.ino` usa PWM del ventilador en GPIO 26, vibrador en 27, LED en 25 y buzzer en 33 como valores provisionales (I²C en 21/22). Confirmar con el circuito de potencia de Ingrid y ajustar si es distinto.
+- **Pines del ESP32:** `main_esp32.ino` usa relé en GPIO 32, PWM del ventilador en 26, vibrador en 27, LED en 25 y buzzer en 33 como valores provisionales (I²C en 21/22). Confirmar con el circuito de potencia de Ingrid y ajustar si es distinto.
 - **Sin compilar ni probar:** el firmware (SCD41, MAX30102, PWM, respaldo local) se escribió sin compilar ni probar en el ESP32. Revisar sobre todo la API de las librerías según su versión y que el PWM use `ledcAttach` (core 3.x) o `ledcSetup` (core 2.x); el código acepta ambos. Lo que sí se probó es la lógica de `logica.py` (niveles por CO₂ y estado).
 - **Frecuencia PWM y módulos:** se usan 5 kHz; verificar con el D4184, el ventilador Steren y el módulo vibratorio (si hacen ruido o no responden, probar otra frecuencia). Confirmar si el módulo vibratorio recibe PWM directo por su pin de señal.
 - **Circuito de potencia:** unir las tierras (GND) de las fuentes de 12 V y 5 V con la del ESP32, y poner los diodos 1N5819 en antiparalelo con el ventilador y el vibrador si sus módulos no los traen. Resistencia en serie para el LED.
-- **Relé (sin programar):** sigue en el circuito, en serie entre la fuente de 12 V y el ventilador. Se propuso GPIO 14 y cortar si "Emergencia" dura más de 30 s, pero eso apagaría la ventilación justo cuando más hace falta (CO₂ > 2000 ppm). Falta definir qué lo dispara (¿falla del ventilador o del D4184? ¿firmware colgado?), cuándo se vuelve a cerrar, el nivel de activación del módulo y el pin real. Además, **GPIO 14 emite PWM al arrancar el ESP32** y podría activar el relé sin querer; usar otro pin o un pull-down.
+- **Relé (decisión de diseño a validar):** va en serie entre la fuente de 12 V y el ventilador. Se había propuesto cortarlo si "Emergencia" duraba más de 30 s, pero eso apagaría la ventilación justo cuando más hace falta (CO₂ > 2000 ppm), así que el firmware lo usa como **interruptor de potencia**: cerrado solo cuando el ventilador debe girar (> 0 %) y abierto en el arranque y con el ventilador en 0 %. Si el equipo prefiere una protección contra fallas (por ejemplo, abrirlo si el ventilador falla), falta definir qué la dispara. Se usa GPIO 32 (provisional) en lugar de GPIO 14, que emite PWM al arrancar y activaría el relé sin querer. Confirmar con Ingrid el pin real, si el módulo se activa con HIGH o LOW (`RELE_ACTIVO_ALTO`) y si tiene optoacoplador.
 - **Documentación pendiente (`docs/`):** el PDF del Charter y el presupuesto no incluyen D4184, módulo vibratorio, fuente de 5 V ni diodos (un PDF no se puede editar desde el repo). Falta el diagrama de conexiones. Ya se actualizaron el riesgo 3 y el PRR 2 (voltajes), el PRR 1 (AM2302 fuera del proyecto) y el riesgo 13 / PRR 6 (el sistema de IA es 100 % local, el riesgo ahora es que el modelo falte o se corrompa).
 - **Charter (Google Doc):** el líder es Iván (corregir la línea de Ingrid) y falta Mauricio en la portada con su matrícula (A01779117 según su correo; confirmar).
 - **Pulso `0`:** el ESP32 manda 0 cuando no hay dedo en el MAX30102; la lógica lo toma como pulso base (70) y el dashboard muestra `--`.
@@ -109,7 +110,6 @@ Cosas que hay que revisar o confirmar antes de seguir (actualizado el 27 oct 202
 - Probar en hardware el firmware que ya integra SCD41 y MAX30102 (calibrar CO₂ y validar el pulso).
 - Circuito de potencia: armar D4184 + ventilador, módulo vibratorio, LED y buzzer, y probar el control por PWM.
 - Entrenar el modelo con datos reales de la base de datos (hoy usa datos sintéticos).
-- Histórico y registro visible de anomalías en la interfaz. Propuesta (sin programar): anomalía = salto de CO₂ > 150 ppm entre lecturas consecutivas, guardada en una tabla `eventos` de SQLite y mostrada como lista corta en el dashboard; el Charter pide "IA", así que conviene complementarla con el modelo y decidir si el pulso también cuenta.
-- Programar el control del relé una vez definida su regla (ver *Comentarios para el equipo*).
+- Anomalías: ya se registran saltos de CO₂ > 150 ppm y cambios de estado (los que anticipa la IA incluidos). Falta decidir si el pulso también cuenta como anomalía, ajustar el umbral con datos reales del SCD41 y, si el profesor espera un detector entrenado, sumarlo al modelo.
 - Pruebas integrales (exhalación en caja cerrada, tiempo de respuesta ≤ 5 s) y validación contra el monitor de referencia.
 - Documentación final y demostración (3 dic 2026).
