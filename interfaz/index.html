@@ -72,6 +72,22 @@
         .ia-card { grid-column: span 2; }
         @media (max-width: 600px) { .ia-card { grid-column: span 1; } }
 
+        .eventos {
+            background: #1e293b;
+            padding: 18px 20px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            margin-top: 25px;
+        }
+        .eventos h3 { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+        .eventos ul { list-style: none; }
+        .eventos li { padding: 6px 0; border-top: 1px solid #334155; font-size: 0.9rem; }
+        .eventos li:first-child { border-top: none; }
+        .eventos .hora { color: #64748b; margin-right: 8px; }
+        .eventos .salto_co2 .tipo { color: #fbbf24; }
+        .eventos .cambio_estado .tipo { color: #38bdf8; }
+        .eventos .vacio { color: #64748b; }
+
         .chart-container {
             background: #1e293b;
             padding: 20px;
@@ -151,6 +167,12 @@
         <canvas id="co2Chart"></canvas>
     </div>
 
+    <!-- Anomalías y cambios de estado registrados por el servidor -->
+    <div class="eventos">
+        <h3>Eventos y anomalías recientes</h3>
+        <ul id="eventos-lista"><li class="vacio">Sin eventos registrados</li></ul>
+    </div>
+
     <script>
         // Inicializar Gráfica Chart.js
         const ctx = document.getElementById('co2Chart').getContext('2d');
@@ -178,8 +200,23 @@
             }
         });
 
+        const MAX_PUNTOS = 60;
+
+        // Al cargar la pagina se recupera el histórico reciente desde la base de datos
+        async function cargarHistorial() {
+            try {
+                const res = await fetch('/ultimas?n=' + MAX_PUNTOS);
+                const filas = await res.json();
+                filas.reverse().forEach(f => {
+                    co2Chart.data.labels.push(new Date(f.fecha).toLocaleTimeString());
+                    co2Chart.data.datasets[0].data.push(f.co2);
+                });
+                co2Chart.update();
+            } catch (err) {}
+        }
+
         function agregarDatoGrafica(hora, co2) {
-            if (co2Chart.data.labels.length > 15) {
+            if (co2Chart.data.labels.length >= MAX_PUNTOS) {
                 co2Chart.data.labels.shift();
                 co2Chart.data.datasets[0].data.shift();
             }
@@ -272,8 +309,43 @@
         selectorOperador.addEventListener('change', enviarOperador);
         enviarOperador();
 
-        setInterval(actualizarDashboard, 3000);
-        actualizarDashboard();
+        async function actualizarEventos() {
+            try {
+                const res = await fetch('/eventos?n=8');
+                const eventos = await res.json();
+                const lista = document.getElementById('eventos-lista');
+                lista.replaceChildren();
+                if (eventos.length === 0) {
+                    const vacio = document.createElement('li');
+                    vacio.className = 'vacio';
+                    vacio.textContent = 'Sin eventos registrados';
+                    lista.appendChild(vacio);
+                    return;
+                }
+                eventos.forEach(e => {
+                    const li = document.createElement('li');
+                    li.className = e.tipo;
+                    const hora = document.createElement('span');
+                    hora.className = 'hora';
+                    hora.textContent = new Date(e.fecha).toLocaleTimeString();
+                    const tipo = document.createElement('span');
+                    tipo.className = 'tipo';
+                    tipo.textContent = (e.tipo === 'salto_co2' ? 'Anomalía: ' : 'Estado: ');
+                    li.append(hora, tipo, e.detalle);
+                    lista.appendChild(li);
+                });
+            } catch (err) {}
+        }
+
+        function actualizarTodo() {
+            actualizarDashboard();
+            actualizarEventos();
+        }
+
+        cargarHistorial().then(() => {
+            setInterval(actualizarTodo, 3000);
+            actualizarTodo();
+        });
     </script>
 </body>
 </html>
