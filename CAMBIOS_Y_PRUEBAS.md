@@ -138,7 +138,7 @@ Etapas (monitor serial a 115200):
 - Calibrar el CO₂ del SCD41 y comparar con el monitor de referencia.
 
 **Documentos que no pude editar o requieren decisión del equipo**
-- `docs/01_Project_Charter_WBS.pdf` es un PDF y no lo puedo modificar. Si el Charter existe como **Google Doc**, hay que actualizarlo ahí (o pasarme el enlace y autorizarme a editarlo): lista de equipo (agregar D4184, módulo vibratorio, fuente de 5 V, diodos, relé en serie), presupuesto de ~$1,100 MXN, líder = Iván (corregir la línea de Ingrid) y Mauricio en la portada con su matrícula.
+- `docs/PROJECT CHARTER.pdf` (versión del 27 oct) ya tiene el líder corregido (Iván) y a Mauricio en la portada con su matrícula. **Todavía le falta:** en "Recursos clave asignados", agregar D4184, módulo vibratorio, fuente de 5 V, diodos y el relé en serie; en "Insumos", la fuente de 5 V; en los entregables, el ventilador y vibrador; y revisar el presupuesto de ~$1,100 MXN. Un PDF no se edita desde aquí: hay que regenerarlo desde el Google Doc (o pasarme el enlace y autorizarme a editarlo).
 - `docs/02_Plan_Gestion_Riesgos.xlsx`, PRR 2: la acción *"Usar módulo relé con optoacoplador"* aparece como Completada. Con el relé confirmado sigue siendo válida solo si el módulo de relé trae optoacoplador; confirmarlo con Ingrid.
 - PRR 1: la acción de respaldo (STCC4 o MH-Z19B) sigue "En espera". Si el SCD41 ya llegó, se puede cerrar.
 - Falta el **diagrama de conexiones** que pide el Charter (la tabla de la sección 2 es el borrador).
@@ -159,8 +159,8 @@ Etapas (monitor serial a 115200):
 | 7 | ¿Operador global basta? | Sí, para una demo con una persona probando a la vez. | El operador activo se ve junto al título del dashboard. |
 | 8 | ¿Sigue la API externa de IA? | No, todo es local (scikit-learn). | Riesgo 13 y PRR 6 reescritos como "modelo ausente o corrupto". |
 | 10 | ¿Internet en la demo? | Que no dependan de ello. | Chart.js ya es local. Falta fijar y anotar la IP de la Raspberry (o usar hotspot). |
-| 11 | ¿Quién es el líder? | Iván. | Falta corregir la línea de Ingrid en el Google Doc del Charter. |
-| 12 | ¿Falta Mauricio en la portada? | Sí, con su matrícula (A01779117 según su correo del Charter; confirmar). | Falta hacerlo en el Google Doc del Charter. |
+| 11 | ¿Quién es el líder? | Iván. | Corregido en `docs/PROJECT CHARTER.pdf`. |
+| 12 | ¿Falta Mauricio en la portada? | Sí, con su matrícula (A01779117 según su correo del Charter; confirmar). | Hecho en `docs/PROJECT CHARTER.pdf` con A01779117. |
 
 ### Respondidas con reservas (ya implementadas, con puntos por validar)
 - **1. Relé.** Sigue en el circuito: en serie entre la fuente de 12 V y el ventilador, no en paralelo con el D4184. La propuesta recibida (GPIO 14 y cortar si "Emergencia" dura más de 30 s) tenía dos problemas: cortar el ventilador en Emergencia apaga la ventilación justo cuando más hace falta, y GPIO 14 emite PWM al arrancar el ESP32 y podría activar el relé. **Lo que se implementó (8651e50, decisión mía a validar):** el relé es un interruptor de potencia, cerrado solo cuando el ventilador debe girar (> 0 %) y abierto al arrancar y con el ventilador en 0 %, en GPIO 32 (provisional). **Sigue pendiente:** el pin real, si el módulo se activa con HIGH o LOW (`RELE_ACTIVO_ALTO`), si tiene optoacoplador (PRR 2) y, si el equipo quiere además una protección contra fallas, qué la dispara y cuándo se vuelve a cerrar.
