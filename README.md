@@ -85,6 +85,16 @@ curl http://localhost:8080/estado
 
 **ESP32:** abrir `esp32/main_esp32.ino` en Arduino IDE, instalar las librerías *Sensirion I2C SCD4x* y *SparkFun MAX3010x Pulse and Proximity Sensor Library*, poner `ssid`, `password` y la IP de la Raspberry en `serverUrl`, cargar y abrir el Monitor Serial a 115200.
 
+## Estado actual (27 oct 2026)
+| Parte | Estado |
+|---|---|
+| API, base de datos y lógica de estados | Funciona y se probó localmente (niveles de ventilador y vibración, eventos, validación de entradas). |
+| Dashboard | Funciona y se probó en Chrome contra el servidor (estado, operador activo, gráfica con histórico, eventos, Chart.js local). |
+| Modelo de IA | Entrena y carga bien, pero con datos sintéticos. |
+| Firmware del ESP32 | Escrito (SCD41, MAX30102, PWM, relé, respaldo local), **sin compilar ni probar**. |
+| Circuito de potencia | Sin armar o sin confirmar: pines, módulo vibratorio y relé pendientes. |
+| Documentación (`docs/`) | Riesgos actualizados; falta el PDF del Charter (y el Google Doc) y el diagrama de conexiones. |
+
 ## Problemas conocidos (a resolver)
 - Sin `python ia/train.py` el predictor funciona solo con la regla de pendiente (el servidor lo avisa al arrancar).
 - Los pines de relé (32), ventilador (26), vibrador (27), LED (25) y buzzer (33) en `main_esp32.ino` son provisionales y el firmware nuevo no se ha compilado ni probado en hardware.
@@ -94,7 +104,7 @@ curl http://localhost:8080/estado
 ## Comentarios para el equipo
 Cosas que hay que revisar o confirmar antes de seguir (actualizado el 27 oct 2026; el detalle y las 12 preguntas están en [`CAMBIOS_Y_PRUEBAS.md`](CAMBIOS_Y_PRUEBAS.md)):
 - **Pines del ESP32:** `main_esp32.ino` usa relé en GPIO 32, PWM del ventilador en 26, vibrador en 27, LED en 25 y buzzer en 33 como valores provisionales (I²C en 21/22). Confirmar con el circuito de potencia de Ingrid y ajustar si es distinto.
-- **Sin compilar ni probar:** el firmware (SCD41, MAX30102, PWM, respaldo local) se escribió sin compilar ni probar en el ESP32. Revisar sobre todo la API de las librerías según su versión y que el PWM use `ledcAttach` (core 3.x) o `ledcSetup` (core 2.x); el código acepta ambos. Lo que sí se probó es la lógica de `logica.py` (niveles por CO₂ y estado).
+- **Sin compilar ni probar:** el firmware (SCD41, MAX30102, PWM, respaldo local) se escribió sin compilar ni probar en el ESP32. Revisar sobre todo la API de las librerías según su versión y que el PWM use `ledcAttach` (core 3.x) o `ledcSetup` (core 2.x); el código acepta ambos. Lo que sí se probó es el servidor, `logica.py` (niveles por CO₂ y estado) y el dashboard.
 - **Frecuencia PWM y módulos:** se usan 5 kHz; verificar con el D4184, el ventilador Steren y el módulo vibratorio (si hacen ruido o no responden, probar otra frecuencia). Confirmar si el módulo vibratorio recibe PWM directo por su pin de señal.
 - **Circuito de potencia:** unir las tierras (GND) de las fuentes de 12 V y 5 V con la del ESP32, y poner los diodos 1N5819 en antiparalelo con el ventilador y el vibrador si sus módulos no los traen. Resistencia en serie para el LED.
 - **Relé (decisión de diseño a validar):** va en serie entre la fuente de 12 V y el ventilador. Se había propuesto cortarlo si "Emergencia" duraba más de 30 s, pero eso apagaría la ventilación justo cuando más hace falta (CO₂ > 2000 ppm), así que el firmware lo usa como **interruptor de potencia**: cerrado solo cuando el ventilador debe girar (> 0 %) y abierto en el arranque y con el ventilador en 0 %. Si el equipo prefiere una protección contra fallas (por ejemplo, abrirlo si el ventilador falla), falta definir qué la dispara. Se usa GPIO 32 (provisional) en lugar de GPIO 14, que emite PWM al arrancar y activaría el relé sin querer. Confirmar con Ingrid el pin real, si el módulo se activa con HIGH o LOW (`RELE_ACTIVO_ALTO`) y si tiene optoacoplador.
@@ -108,7 +118,7 @@ Cosas que hay que revisar o confirmar antes de seguir (actualizado el 27 oct 202
 
 ## Pendientes del proyecto
 - Probar en hardware el firmware que ya integra SCD41 y MAX30102 (calibrar CO₂ y validar el pulso).
-- Circuito de potencia: armar D4184 + ventilador, módulo vibratorio, LED y buzzer, y probar el control por PWM.
+- Circuito de potencia: armar relé en serie, D4184 + ventilador, módulo vibratorio, LED y buzzer, y probar el control por PWM.
 - Entrenar el modelo con datos reales de la base de datos (hoy usa datos sintéticos).
 - Anomalías: ya se registran saltos de CO₂ > 150 ppm y cambios de estado (los que anticipa la IA incluidos). Falta decidir si el pulso también cuenta como anomalía, ajustar el umbral con datos reales del SCD41 y, si el profesor espera un detector entrenado, sumarlo al modelo.
 - Pruebas integrales (exhalación en caja cerrada, tiempo de respuesta ≤ 5 s) y validación contra el monitor de referencia.
