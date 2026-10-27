@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SIMVA - Dashboard</title>
     <link rel="manifest" href="manifest.json">
-    <!-- Chart.js servido localmente o via CDN para desarrollo -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js v4.4.1 servido localmente (la Raspberry puede no tener internet) -->
+    <script src="vendor/chart.umd.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -27,6 +27,8 @@
         }
         h1 { font-size: 1.8rem; color: #38bdf8; }
         p.subtitle { font-size: 0.9rem; color: #94a3b8; }
+        p.operador-activo { font-size: 1.1rem; color: #94a3b8; margin-top: 6px; }
+        p.operador-activo strong { color: #4ade80; }
         
         .profile-selector {
             background: #1e293b;
@@ -85,6 +87,7 @@
         <div>
             <h1>SIMVA Dashboard</h1>
             <p class="subtitle">Sistema Inteligente de Monitoreo y Ventilación Automática</p>
+            <p class="operador-activo">Operador activo: <strong id="operador-activo">--</strong></p>
         </div>
         
         <!-- Selector de Perfiles (Requerimiento Retroalimentación) -->
@@ -245,7 +248,12 @@
 
         // Informa al servidor el operador activo (se guarda con cada lectura)
         const selectorOperador = document.getElementById('operador');
+        function mostrarOperadorActivo() {
+            document.getElementById('operador-activo').innerText =
+                selectorOperador.options[selectorOperador.selectedIndex].text;
+        }
         async function enviarOperador() {
+            mostrarOperadorActivo();
             try {
                 localStorage.setItem('operador', selectorOperador.value);
             } catch (e) {}
