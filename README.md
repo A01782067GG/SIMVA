@@ -36,7 +36,7 @@ MAX30102 (pulso) ─────┴─► ESP32 ──(WiFi, POST /lectura cada 
 | Alimentación | Fuente de 12 V (ventilador) y fuente de 5 V (módulo vibratorio) |
 | Montaje | Protoboard, jumpers, resistencias, diodos 1N5819 (protección del circuito de potencia) |
 
-El relé aparece en la lista original pero el D4184 ya conmuta y regula el ventilador, así que el firmware no lo usa.
+El relé **sigue en el circuito**: va en serie entre la fuente de 12 V y el ventilador (no en paralelo con el D4184). El firmware todavía no lo controla porque falta definir qué lo activa (ver *Comentarios para el equipo*).
 
 El ESP32 mide, manda la lectura y aplica los niveles que devuelve el servidor. Si no hay WiFi o el servidor no responde en 3 s, aplica las mismas reglas con el CO₂ local (`controlLocal()`).
 
@@ -46,7 +46,7 @@ El ESP32 mide, manda la lectura y aplica los niveles que devuelve el servidor. S
 |---|---|
 | `esp32/` | `main_esp32.ino`: conecta por WiFi, lee el SCD41 y el MAX30102 por I²C (SDA 21, SCL 22), envía un JSON cada 5 s a `http://<IP_RPI>:8080/lectura` y aplica por PWM los niveles de ventilador y vibración que devuelve el servidor, más LED y buzzer. Pulso `0` significa que el MAX30102 no detecta el dedo. |
 | `raspberry/` | `servidor.py` (API + servidor del dashboard), `logica.py` (estados), `ia/` (modelo), `requirements.txt`. |
-| `interfaz/` | `index.html` (dashboard con Chart.js) y `manifest.json` (PWA). |
+| `interfaz/` | `index.html` (dashboard), `vendor/chart.umd.min.js` (Chart.js v4.4.1 local, sin internet) y `manifest.json` (PWA). |
 | `docs/` | Project Charter + WBS (PDF), Plan de Gestión de Riesgos (xlsx), Plan de RH: matriz de habilidades y RACI (docx). |
 
 ### `raspberry/`
@@ -64,7 +64,7 @@ El ESP32 mide, manda la lectura y aplica los niveles que devuelve el servidor. S
 - **`ia/train.py`**: genera datos sintéticos y entrena un `DecisionTreeClassifier` (features: hora, día, CO₂, pendiente, temperatura, pulso) guardado en `ia/models/co2_model.joblib`. **`ia/predictor.py`** debe exponer `SIMVAPredictor.evaluar(...)`, que devuelve `minutos_estimados_umbral`, `recomendacion_ventilacion_ia` y `co2_pendiente_ppm_min`.
 
 ### `interfaz/`
-Dashboard oscuro con tarjetas (temperatura, humedad, CO₂, pulso, ventilación, diagnóstico IA), selector de operador (Iván, Ingrid, Edgar, Leonardo) y gráfica de CO₂ en tiempo real, actualizado cada 3 s. Si el backend no responde, cae a **datos simulados** sin avisar.
+Dashboard oscuro con tarjetas (temperatura, humedad, CO₂, pulso, estado, ventilación con su porcentaje, vibración, diagnóstico IA), selector de operador (Iván, Ingrid, Edgar, Leonardo) con el **operador activo** visible junto al título, y gráfica de CO₂ en tiempo real, actualizado cada 3 s. Si el backend no responde, cae a datos simulados y lo avisa en la tarjeta de Estado ("⚠ Datos simulados"). Se probó en Chrome contra el servidor local.
 
 ## Puesta en marcha
 
@@ -87,29 +87,29 @@ curl http://localhost:8080/estado
 ## Problemas conocidos (a resolver)
 - Sin `python ia/train.py` el predictor funciona solo con la regla de pendiente (el servidor lo avisa al arrancar).
 - Los pines de ventilador (26), vibrador (27), LED (25) y buzzer (33) en `main_esp32.ino` son provisionales y el firmware nuevo no se ha compilado ni probado en hardware.
-- El dashboard carga Chart.js desde un CDN (requiere internet).
 - `manifest.json` ya no declara íconos; falta crear un `icon.png` para que la PWA sea instalable.
 - Los endpoints de la versión anterior (`/enviar_lectura`, `/datos_actuales`, `/historial`) y `app.py`/`database.py` ya no existen.
 
 ## Comentarios para el equipo
-Cosas que hay que revisar o confirmar antes de seguir (cambios del 19 oct 2026):
+Cosas que hay que revisar o confirmar antes de seguir (actualizado el 27 oct 2026; el detalle y las 12 preguntas están en [`CAMBIOS_Y_PRUEBAS.md`](CAMBIOS_Y_PRUEBAS.md)):
 - **Pines del ESP32:** `main_esp32.ino` usa PWM del ventilador en GPIO 26, vibrador en 27, LED en 25 y buzzer en 33 como valores provisionales (I²C en 21/22). Confirmar con el circuito de potencia de Ingrid y ajustar si es distinto.
 - **Sin compilar ni probar:** el firmware (SCD41, MAX30102, PWM, respaldo local) se escribió sin compilar ni probar en el ESP32. Revisar sobre todo la API de las librerías según su versión y que el PWM use `ledcAttach` (core 3.x) o `ledcSetup` (core 2.x); el código acepta ambos. Lo que sí se probó es la lógica de `logica.py` (niveles por CO₂ y estado).
 - **Frecuencia PWM y módulos:** se usan 5 kHz; verificar con el D4184, el ventilador Steren y el módulo vibratorio (si hacen ruido o no responden, probar otra frecuencia). Confirmar si el módulo vibratorio recibe PWM directo por su pin de señal.
 - **Circuito de potencia:** unir las tierras (GND) de las fuentes de 12 V y 5 V con la del ESP32, y poner los diodos 1N5819 en antiparalelo con el ventilador y el vibrador si sus módulos no los traen. Resistencia en serie para el LED.
-- **Relé:** no se usa en el firmware. Si el equipo lo quiere mantener como corte de seguridad, definir su pin y regla.
-- **Documentación pendiente (`docs/`):** el Charter, el plan de riesgos (PRR 2 habla de un relé con optoacoplador) y el presupuesto no incluyen D4184, módulo vibratorio, fuente de 5 V ni diodos. Falta el diagrama de conexiones y el AM2302 ya no forma parte del proyecto.
+- **Relé (sin programar):** sigue en el circuito, en serie entre la fuente de 12 V y el ventilador. Se propuso GPIO 14 y cortar si "Emergencia" dura más de 30 s, pero eso apagaría la ventilación justo cuando más hace falta (CO₂ > 2000 ppm). Falta definir qué lo dispara (¿falla del ventilador o del D4184? ¿firmware colgado?), cuándo se vuelve a cerrar, el nivel de activación del módulo y el pin real. Además, **GPIO 14 emite PWM al arrancar el ESP32** y podría activar el relé sin querer; usar otro pin o un pull-down.
+- **Documentación pendiente (`docs/`):** el PDF del Charter y el presupuesto no incluyen D4184, módulo vibratorio, fuente de 5 V ni diodos (un PDF no se puede editar desde el repo). Falta el diagrama de conexiones. Ya se actualizaron el riesgo 3 y el PRR 2 (voltajes), el PRR 1 (AM2302 fuera del proyecto) y el riesgo 13 / PRR 6 (el sistema de IA es 100 % local, el riesgo ahora es que el modelo falte o se corrompa).
+- **Charter (Google Doc):** el líder es Iván (corregir la línea de Ingrid) y falta Mauricio en la portada con su matrícula (A01779117 según su correo; confirmar).
 - **Pulso `0`:** el ESP32 manda 0 cuando no hay dedo en el MAX30102; la lógica lo toma como pulso base (70) y el dashboard muestra `--`.
-- **Dashboard sin probar en navegador:** la tarjeta de Estado, el envío del operador y el aviso de datos simulados hay que verlos funcionando.
-- **Operador:** ahora lo fija el dashboard con `POST /operador` y es global (el último que cambió el selector). Si hay varias personas con el dashboard abierto, gana la última. ¿Es suficiente para la demo?
+- **Operador:** lo fija el dashboard con `POST /operador` y es global (el último que cambió el selector). Se decidió que es suficiente para la demo con una persona probando a la vez; el nombre activo se ve junto al título.
 - **Ícono de la PWA:** se quitó la referencia a `icon.png` del manifest; si se quiere instalar como app hay que crear el ícono y volver a declararlo.
-- **Chart.js por CDN:** si la Raspberry no tendrá internet en la demo, descargar Chart.js y servirlo desde `interfaz/`.
-- **Modelo de IA:** `ia/models/co2_model.joblib` no está en el repo; cada quien debe correr `python ia/train.py`. Sin él funciona solo la regla de pendiente. El modelo actual se entrena con datos sintéticos.
+- **Sin internet en la demo:** Chart.js ya se sirve local. Para la IP de la Raspberry usar una IP fija o reservada (o el hotspot del celular) y anotarla: el ESP32 no resuelve nombres `.local` de forma confiable.
+- **Modelo de IA:** `ia/models/co2_model.joblib` no está en el repo (está en `.gitignore`); cada quien debe correr `python ia/train.py`. Sin él funciona solo la regla de pendiente. El modelo actual se entrena con datos sintéticos. Decidir si conviene subir el `.joblib` o guardar una copia de respaldo fuera de la Raspberry (acción del PRR 6).
 
 ## Pendientes del proyecto
 - Probar en hardware el firmware que ya integra SCD41 y MAX30102 (calibrar CO₂ y validar el pulso).
 - Circuito de potencia: armar D4184 + ventilador, módulo vibratorio, LED y buzzer, y probar el control por PWM.
 - Entrenar el modelo con datos reales de la base de datos (hoy usa datos sintéticos).
-- Histórico y registro visible de anomalías en la interfaz.
+- Histórico y registro visible de anomalías en la interfaz. Propuesta (sin programar): anomalía = salto de CO₂ > 150 ppm entre lecturas consecutivas, guardada en una tabla `eventos` de SQLite y mostrada como lista corta en el dashboard; el Charter pide "IA", así que conviene complementarla con el modelo y decidir si el pulso también cuenta.
+- Programar el control del relé una vez definida su regla (ver *Comentarios para el equipo*).
 - Pruebas integrales (exhalación en caja cerrada, tiempo de respuesta ≤ 5 s) y validación contra el monitor de referencia.
 - Documentación final y demostración (3 dic 2026).

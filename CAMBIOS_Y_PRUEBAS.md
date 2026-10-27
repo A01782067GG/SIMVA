@@ -1,13 +1,13 @@
 # SIMVA: cambios, pruebas, pendientes y preguntas abiertas
 
-Actualizado el 24 oct 2026. Este documento resume lo que cambió en el código desde la revisión del 19 oct, cómo probarlo, qué falta y qué decisiones siguen sin respuesta. El README tiene la descripción general del proyecto.
+Actualizado el 27 oct 2026 (con las respuestas del equipo a las 12 preguntas). Este documento resume lo que cambió en el código desde la revisión del 19 oct, cómo probarlo, qué falta y qué decisiones siguen sin respuesta. El README tiene la descripción general del proyecto.
 
 ## 1. Qué cambió
 
 ### Decisiones ya tomadas (no se vuelven a discutir)
 - **Listado final de hardware confirmado:** ESP32, Raspberry Pi 4 (4 GB) con microSD, SCD41, MAX30102, ventilador Steren 12 V con módulo D4184, módulo vibratorio 5 V, LED, buzzer **activo**, fuentes de 12 V y 5 V, protoboard, jumpers, resistencias y diodos 1N5819.
 - **El AM2302 sale del proyecto.** El SCD41 ya mide temperatura y humedad. Se borró `esp32/leer_am2302.ino`.
-- **El relé no se usa en el firmware.** El D4184 conmuta y regula el ventilador por PWM (ver pregunta 1).
+- **El relé sigue en el circuito**, en serie entre la fuente de 12 V y el ventilador (no en paralelo con el D4184). **El firmware todavía no lo controla**: falta definir su regla (ver pregunta 1). El D4184 regula el ventilador por PWM.
 - **Ventilador proporcional al CO₂.** **Vibración** apagada en Normal, 50 % en Alerta, 100 % en Emergencia.
 - **El ESP32 ejecuta la lógica de control:** aplica los niveles que manda el servidor y, si no hay respuesta, decide solo con el CO₂ (respaldo local).
 
@@ -21,7 +21,9 @@ Actualizado el 24 oct 2026. Este documento resume lo que cambió en el código d
 | `c7560db` | `raspberry/logica.py`, `servidor.py` | Ventilador proporcional al CO₂ y vibración por estado; la API devuelve `ventilador_pct` y `vibracion_pct`. |
 | `081efca` | `interfaz/index.html` | Porcentaje del ventilador, tarjeta de vibración, `--` cuando el pulso es 0. |
 | `61fae72` | `esp32/` | Firmware nuevo: SCD41 y MAX30102 por I²C, PWM del ventilador y del vibrador, LED, buzzer y respaldo local. |
-| (este commit) | `docs/`, `.gitignore`, READMEs | Documentación actualizada (sección 5) y `raspberry/ia/models/` ignorado. |
+| `0131808`, `761f706`, `fc982d6` | `docs/`, `.gitignore`, READMEs, esta guía y su PDF | Documentación actualizada y `raspberry/ia/models/` ignorado. |
+| `35870c0` | `docs/02_Plan_Gestion_Riesgos.xlsx` | PRR 1 sin AM2302; riesgo 13 y PRR 6 reescritos (modelo de IA ausente o corrupto). |
+| `056af0b` | `interfaz/` | Operador activo visible junto al título; Chart.js v4.4.1 local en `interfaz/vendor/` (sin CDN). Probado en Chrome contra el servidor. |
 
 ### Reglas de salida (`raspberry/logica.py`)
 | Condición | Estado | Ventilador | Vibración | LED | Buzzer |
@@ -43,6 +45,7 @@ El ESP32 usa las mismas reglas con el CO₂ local (`controlLocal()`) si no hay W
 | Módulo vibratorio | Señal ← GPIO 27. Alimentación 5 V de la fuente de 5 V | Ver pregunta 3. |
 | LED | GPIO 25 → resistencia (220 a 330 Ω) → LED → GND | |
 | Buzzer activo | GPIO 33 → GND | Si consume más de 12 mA, usar un transistor o módulo con driver. |
+| Relé (sin programar) | En serie entre la fuente de 12 V y el ventilador; su pin de control está por definir | Se propuso GPIO 14, pero emite PWM al arrancar. Ver pregunta 1. |
 | **GND común** | GND del ESP32, de la fuente de 12 V y de la fuente de 5 V unidos | Obligatorio antes de energizar (PRR 2). |
 
 Los pines se cambian en las constantes del inicio de `esp32/main_esp32.ino`.
@@ -122,7 +125,9 @@ Etapas (monitor serial a 115200):
 - Compilar y depurar el firmware del ESP32 (nunca se ha compilado).
 - Registro y visualización de anomalías y un histórico más allá de los últimos 15 puntos de la gráfica (criterios del Charter).
 - Reentrenar el modelo con datos reales; hoy usa datos sintéticos.
-- Servir Chart.js localmente si la Raspberry no tendrá internet, y crear `interfaz/icon.png` si se quiere instalar como app.
+- **Anomalías** (propuesta, sin programar): salto de CO₂ > 150 ppm entre lecturas consecutivas, guardado en una tabla `eventos` de SQLite y mostrado como lista corta en el dashboard. Decidir si además se usa el modelo (el Charter dice "IA") y si el pulso cuenta.
+- **Relé:** programar su control cuando se defina la regla (pregunta 1).
+- Crear `interfaz/icon.png` si se quiere instalar el dashboard como app.
 - Fijar versiones en `requirements.txt` (riesgo 15 del plan de riesgos).
 
 **Hardware**
@@ -130,29 +135,36 @@ Etapas (monitor serial a 115200):
 - Calibrar el CO₂ del SCD41 y comparar con el monitor de referencia.
 
 **Documentos que no pude editar o requieren decisión del equipo**
-- `docs/01_Project_Charter_WBS.pdf` es un PDF y no lo puedo modificar. Hay que actualizar a mano su lista de equipo (agregar D4184, módulo vibratorio, fuente de 5 V, diodos; quitar el AM2302 si aparece) y revisar el presupuesto de ~$1,100 MXN.
-- `docs/02_Plan_Gestion_Riesgos.xlsx`, PRR 2: la acción *"Usar módulo relé con optoacoplador"* aparece como Completada y ya no corresponde al listado final (pregunta 1). El PRR 1 todavía menciona el AM2302 en el sensor de respaldo; si el SCD41 ya llegó, ese plan B se puede cerrar.
+- `docs/01_Project_Charter_WBS.pdf` es un PDF y no lo puedo modificar. Si el Charter existe como **Google Doc**, hay que actualizarlo ahí (o pasarme el enlace y autorizarme a editarlo): lista de equipo (agregar D4184, módulo vibratorio, fuente de 5 V, diodos, relé en serie), presupuesto de ~$1,100 MXN, líder = Iván (corregir la línea de Ingrid) y Mauricio en la portada con su matrícula.
+- `docs/02_Plan_Gestion_Riesgos.xlsx`, PRR 2: la acción *"Usar módulo relé con optoacoplador"* aparece como Completada. Con el relé confirmado sigue siendo válida solo si el módulo de relé trae optoacoplador; confirmarlo con Ingrid.
+- PRR 1: la acción de respaldo (STCC4 o MH-Z19B) sigue "En espera". Si el SCD41 ya llegó, se puede cerrar.
 - Falta el **diagrama de conexiones** que pide el Charter (la tabla de la sección 2 es el borrador).
-- Los riesgos 13 y PRR 6 hablan de una API externa de IA que el código no usa (pregunta 8).
 
 ## 5. Documentación ya actualizada
 - `README.md`: listado final de hardware, arquitectura, API con niveles de ventilador y vibración, reglas, instalación de librerías y comentarios para el equipo.
-- `docs/02_Plan_Gestion_Riesgos.xlsx`: riesgo 3 y PRR 2 ahora hablan de 12 V, 5 V y D4184 (tierras comunes de las dos fuentes, diodos 1N5819); nombre de Leonardo corregido a *Nájera*.
+- `docs/02_Plan_Gestion_Riesgos.xlsx`: riesgo 3 y PRR 2 hablan de 12 V, 5 V y D4184 (tierras comunes de las dos fuentes, diodos 1N5819); PRR 1 sin el AM2302; riesgo 13 y PRR 6 reescritos como *"Modelo de IA entrenado ausente o corrupto"* (el sistema es 100 % local); nombre de Leonardo corregido a *Nájera*.
 - `docs/05_Plan_Interesados.docx`: nombre de Leonardo corregido a *Nájera*.
 - `docs/README.md` y `raspberry/README.md`: contenido real de las carpetas.
 
-## 6. Preguntas que siguen sin respuesta
-Las que no tenían respuesta el 24 oct, con la decisión provisional que tomé para no bloquear el trabajo:
+## 6. Las 12 preguntas: respuestas del equipo y qué sigue abierto
 
-1. **¿El relé sigue físicamente en el circuito?** Preguntar a Ingrid. Provisional: no se usa; el D4184 hace el trabajo. Si se queda como corte de seguridad, definir su pin y regla.
-2. **¿Alguien necesita el AM2302?** Provisional: eliminado (SCD41 mide temperatura y humedad). Confirmar que no se usa como segunda referencia.
-3. **¿El módulo vibratorio acepta PWM directo por su pin de señal** o necesita un transistor? Revisar su ficha.
-4. **¿El ventilador Steren soporta PWM?** Depende de si es de 2 hilos (el D4184 corta la alimentación) o de 3/4 hilos (tiene entrada PWM propia). Confirmar frecuencia y mínimo de arranque (hoy 5 kHz y 40 %).
-5. **¿Los pines propuestos coinciden con el circuito armado?** (ventilador 26, vibrador 27, LED 25, buzzer 33, I²C 21/22.)
-6. **¿La curva del ventilador es la deseada?** Dijiste "proporcional al CO₂"; los puntos (40 % a 1000 ppm, 100 % a 2000 ppm) y el 30 % anticipado son mi propuesta.
-7. **Operador global:** el dashboard fija un solo operador para todas las lecturas (gana el último que cambió el selector). ¿Es suficiente para la demo?
-8. **API externa de IA:** el plan de riesgos asume un servicio tipo ChatGPT, pero el código es local (scikit-learn). ¿Se va a usar? Si no, actualizar riesgo 13 y PRR 6.
-9. **¿Qué cuenta como "anomalía"** para el criterio del Charter y dónde se registra/muestra?
-10. **Raspberry en la demo:** ¿tendrá internet (para Chart.js por CDN)? ¿IP fija para el ESP32?
-11. **Liderazgo en el Charter:** el documento nombra a Ingrid como "líder de proyecto, hardware…" y a Iván como líder. ¿Cuál es la correcta? (El README dice Iván.)
-12. **Portada del Charter:** lista 4 integrantes; falta Mauricio.
+### Respondidas
+| # | Pregunta | Respuesta | Qué se hizo |
+|---|---|---|---|
+| 2 | ¿Alguien necesita el AM2302? | No, queda eliminado. | PRR 1 actualizado. |
+| 4 | ¿El ventilador soporta PWM? | No importa: el D4184 va entre la fuente de 12 V y el ventilador y trocea la corriente, por lo que sirve para un ventilador de 2 hilos. | Falta confirmar que el ventilador sea de 2 hilos y que arranque con 40 %. |
+| 7 | ¿Operador global basta? | Sí, para una demo con una persona probando a la vez. | El operador activo se ve junto al título del dashboard. |
+| 8 | ¿Sigue la API externa de IA? | No, todo es local (scikit-learn). | Riesgo 13 y PRR 6 reescritos como "modelo ausente o corrupto". |
+| 10 | ¿Internet en la demo? | Que no dependan de ello. | Chart.js ya es local. Falta fijar y anotar la IP de la Raspberry (o usar hotspot). |
+| 11 | ¿Quién es el líder? | Iván. | Falta corregir la línea de Ingrid en el Google Doc del Charter. |
+| 12 | ¿Falta Mauricio en la portada? | Sí, con su matrícula (A01779117 según su correo del Charter; confirmar). | Falta hacerlo en el Google Doc del Charter. |
+
+### Respondidas con reservas
+- **1. Relé.** Sigue en el circuito: en serie entre la fuente de 12 V y el ventilador, no en paralelo con el D4184. Propuesta recibida: GPIO 14 y cortar si "Emergencia" dura más de 30 s. **Problemas:** (a) cortar el ventilador en Emergencia apaga la ventilación justo cuando más hace falta; quizá la intención es proteger contra una falla del ventilador o del D4184 o contra un firmware colgado. (b) GPIO 14 emite PWM al arrancar el ESP32 y podría activar el relé; mejor otro pin o un pull-down. (c) Falta el nivel de activación del módulo y si tiene optoacoplador. **Pendiente de definir:** qué lo dispara, cuándo se vuelve a cerrar y en qué pin está realmente.
+- **9. Anomalía.** Propuesta: salto de CO₂ > 150 ppm entre lecturas consecutivas, guardado en una tabla `eventos` y mostrado en el dashboard. Es viable pero es desarrollo nuevo y el Charter pide "IA": decidir si el modelo también participa y si el pulso cuenta. Sin programar.
+
+### Siguen abiertas (se resuelven con el circuito armado)
+- **3. Módulo vibratorio:** ¿acepta PWM directo? Si es un motor suelto de 2 cables necesita transistor (y diodo); si es un módulo de 3 pines suele traer el driver (se ve un componente pequeño negro cerca de los pines).
+- **5. Pines:** confirmar con multímetro antes de energizar que ventilador 26, vibrador 27, LED 25, buzzer 33 e I²C 21/22 coinciden con lo armado.
+- **6. Curva del ventilador** (40 % a 1000 ppm, 100 % a 2000 ppm, 30 % anticipado): decisión del equipo según qué tan brusco o suave se sienta en pruebas reales. Se cambia en `raspberry/logica.py` y en `controlLocal()` del firmware.
+- **Frecuencia PWM:** se usan 5 kHz; un ventilador de 2 hilos puede preferir frecuencias más bajas. Probar si zumba o no gira.
